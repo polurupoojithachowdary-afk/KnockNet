@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" fill="none">
+  <!-- Knocknet Monogram Mark -->
+  <g transform="translate(6, 6)">
+    <!-- Node Backbone -->
+    <line x1="12" y1="6" x2="12" y2="42" stroke="#cfd3d4" stroke-width="3" stroke-linecap="square" opacity="0.6"/>
+    <!-- Node Pulse Upper -->
+    <line x1="12" y1="24" x2="34" y2="6" stroke="#80bccf" stroke-width="3.5" stroke-linecap="square"/>
+    <!-- Node Pulse Lower -->
+    <line x1="12" y1="24" x2="34" y2="42" stroke="#80bccf" stroke-width="3.5" stroke-linecap="square"/>
+    <!-- Intersecting Network Nodes -->
+    <circle cx="12" cy="6" r="4.5" fill="#cfd3d4"/>
+    <circle cx="12" cy="24" r="5" fill="#80bccf"/>
+    <circle cx="12" cy="42" r="4.5" fill="#cfd3d4"/>
+    <circle cx="34" cy="6" r="4" fill="#80bccf"/>
+    <circle cx="34" cy="42" r="4" fill="#80bccf"/>
+    <!-- Precision Aperture Ring -->
+    <circle cx="12" cy="24" r="9" stroke="#80bccf" stroke-width="1.5" stroke-dasharray="2 3" opacity="0.8"/>
+  </g>
+  <!-- Knocknet Wordmark Typography -->
+  <text x="56" y="34" font-family="'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="700" letter-spacing="-0.03em" fill="#f0f4f6">KNOCK<tspan fill="#80bccf" font-weight="400">NET</tspan></text>
+  <!-- Sub-label tag -->
+  <text x="57" y="46" font-family="'JetBrains Mono', monospace" font-size="8.5" font-weight="500" letter-spacing="0.18em" fill="#cfd3d4" opacity="0.75">REALTIME MESH PROTOCOL</text>
+</svg>
