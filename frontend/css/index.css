@@ -439,10 +439,10 @@ a:focus-visible {
   gap: 18px;
 }
 
-.mode-panel.room-ready > .panel-heading,
-.mode-panel.room-ready > .form-group,
-.mode-panel.room-ready > .capacity-row,
-.mode-panel.room-ready > #btn-create-room {
+.mode-panel.room-ready>.panel-heading,
+.mode-panel.room-ready>.form-group,
+.mode-panel.room-ready>.capacity-row,
+.mode-panel.room-ready>#btn-create-room {
   display: none;
 }
 
@@ -623,10 +623,29 @@ a:focus-visible {
   line-height: 1;
 }
 
-.clock-twelve { top: 13px; left: 50%; transform: translateX(-50%); }
-.clock-three { top: 50%; right: 15px; transform: translateY(-50%); }
-.clock-six { bottom: 13px; left: 50%; transform: translateX(-50%); }
-.clock-nine { top: 50%; left: 15px; transform: translateY(-50%); }
+.clock-twelve {
+  top: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.clock-three {
+  top: 50%;
+  right: 15px;
+  transform: translateY(-50%);
+}
+
+.clock-six {
+  bottom: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.clock-nine {
+  top: 50%;
+  left: 15px;
+  transform: translateY(-50%);
+}
 
 .clock-hand {
   position: absolute;
@@ -1050,13 +1069,33 @@ a:focus-visible {
     height: 100px;
   }
 
-  .clock-hour { height: 23px; }
-  .clock-minute { height: 31px; }
-  .clock-second { height: 36px; }
-  .clock-twelve { top: 9px; }
-  .clock-three { right: 10px; }
-  .clock-six { bottom: 9px; }
-  .clock-nine { left: 10px; }
+  .clock-hour {
+    height: 23px;
+  }
+
+  .clock-minute {
+    height: 31px;
+  }
+
+  .clock-second {
+    height: 36px;
+  }
+
+  .clock-twelve {
+    top: 9px;
+  }
+
+  .clock-three {
+    right: 10px;
+  }
+
+  .clock-six {
+    bottom: 9px;
+  }
+
+  .clock-nine {
+    left: 10px;
+  }
 
   .digital-time {
     font-size: 30px;
@@ -1230,10 +1269,32 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.author-credit {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.author-credit span {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+}
+
+.author-credit strong {
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.72);
 }
