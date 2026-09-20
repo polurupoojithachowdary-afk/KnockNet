@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: knocknet-api
+    runtime: docker
+    plan: free
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /actuator/health
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false

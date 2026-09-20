@@ -2,6 +2,7 @@ HELP.md
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
+!backend/gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -35,3 +36,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Frontend and environment ###
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
