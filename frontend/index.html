@@ -4,260 +4,213 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Knocknet — Private video meetings</title>
-  <meta name="description" content="Identity-gated video meetings with short-lived invitations and browser-to-browser encrypted media.">
+  <meta name="description" content="Private video meetings with verified participants and short-lived invitations.">
   <meta name="referrer" content="no-referrer">
   <link rel="icon" type="image/svg+xml" href="/img/favicon.svg">
   <link rel="stylesheet" href="/css/index.css">
 </head>
 <body>
-  <!-- Calm 3D WebGL Fluid Canvas Backdrop (No pointer blocking) -->
-  <canvas id="fluid-canvas"></canvas>
-  
-  <!-- Architectural Reference Grid -->
-  <div class="grid-underlay"></div>
-
-  <div class="app-wrapper">
-    <!-- Top Navigation Header -->
-    <header class="top-nav">
-      <a href="/" class="brand-mark" id="brand-logo-link">
-        <img src="/img/knocknet-logo.svg" alt="Knocknet" width="180" height="42">
+  <canvas id="fluid-canvas" aria-hidden="true"></canvas>
+  <div class="site-shell">
+    <header class="site-header">
+      <a href="/" class="wordmark" id="brand-logo-link" aria-label="Knocknet home">
+        <span class="wordmark-symbol" aria-hidden="true">K</span>
+        <span>Knocknet</span>
       </a>
-      
-      <div class="nav-right-items">
-        <div class="live-clock-pill" id="live-clock-pill">
-          <span style="opacity: 0.6;">UTC+05:30</span>
-          <span id="live-time-display">--:--:--</span>
-        </div>
-        <div class="status-badge" id="protocol-status">
-          <span class="status-dot"></span>
-          <span id="auth-status">SIGN IN REQUIRED</span>
-        </div>
-        <button type="button" class="btn-auth" id="btn-auth">SIGN IN WITH GOOGLE</button>
+
+      <div class="account-area">
+        <span class="account-name" id="auth-status">Not signed in</span>
+        <button type="button" class="button button-secondary button-compact" id="btn-auth">
+          <span class="google-g" aria-hidden="true">G</span>
+          <span id="auth-button-label">Continue with Google</span>
+        </button>
       </div>
     </header>
 
-    <!-- Main Asymmetric Stage -->
-    <main class="main-stage">
-      <!-- Left Column: Mode Selector & Active Interface -->
-      <section class="conference-hub-col">
-        <div class="hero-pill">
-          <span>●</span>
-          <span>IDENTITY-GATED MEETINGS</span>
-        </div>
-        
-        <h1 class="hero-title">
-          Private conversations, <span class="highlight">with verifiable access.</span>
-        </h1>
-
-        <!-- Mode Selector Buttons: Host Conference vs Join Conference -->
-        <div class="mode-selector-bar" role="tablist">
-          <button type="button" class="btn-mode-tab active" id="tab-btn-host" role="tab" aria-selected="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square">
-              <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-            </svg>
-            <span>HOST CONFERENCE</span>
-          </button>
-          
-          <button type="button" class="btn-mode-tab" id="tab-btn-join" role="tab" aria-selected="false">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-              <polyline points="10 17 15 12 10 7"></polyline>
-              <line x1="15" y1="12" x2="3" y2="12"></line>
-            </svg>
-            <span>JOIN CONFERENCE</span>
-          </button>
+    <main class="workspace">
+      <section class="meeting-column" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Private video meetings</p>
+          <h1 id="page-title">Meet privately.<br>Stay present.</h1>
+          <p class="hero-description">Verified participants, short-lived invitations, and encrypted media—without the clutter.</p>
         </div>
 
-        <!-- 1. HOST CONFERENCE INTERFACE -->
-        <div class="mode-panel active" id="panel-host">
-          <div class="panel-section-title">CREATE A PRIVATE SESSION</div>
-
-          <div class="form-group">
-            <label class="form-label" for="host-session-title">MEETING TITLE (OPTIONAL)</label>
-            <input type="text" id="host-session-title" class="text-input" placeholder="e.g. Architecture Deep-Dive" maxlength="40">
+        <div class="meeting-card">
+          <div class="segmented-control" role="tablist" aria-label="Meeting options">
+            <button type="button" class="segment active" id="tab-btn-host" role="tab" aria-selected="true">New meeting</button>
+            <button type="button" class="segment" id="tab-btn-join" role="tab" aria-selected="false">Join with code</button>
           </div>
 
-          <div class="capacity-row">
-            <div>
-              <div style="font-size: 0.85rem; color: var(--text-main); font-weight: 500;">Participant limit</div>
-              <div style="font-size: 0.72rem; color: var(--secondary-muted); font-family: var(--font-mono);">Direct encrypted mesh · 2–8 people</div>
+          <div class="mode-panel active" id="panel-host" role="tabpanel">
+            <div class="panel-heading">
+              <h2>Start a meeting</h2>
+              <p>Create a room and share the temporary invitation with the people you trust.</p>
             </div>
-            <div class="capacity-controls">
-              <button type="button" class="btn-counter" id="btn-cap-dec" aria-label="Decrease capacity">−</button>
-              <span class="capacity-val" id="capacity-display">6</span>
-              <button type="button" class="btn-counter" id="btn-cap-inc" aria-label="Increase capacity">+</button>
+
+            <div class="form-group">
+              <label class="form-label" for="host-session-title">Meeting name <span>Optional</span></label>
+              <input type="text" id="host-session-title" class="text-input" placeholder="Design review" maxlength="40">
             </div>
-          </div>
 
-          <button type="button" class="btn-primary" id="btn-create-room">
-            <span>Create Private Room</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-              <polyline points="12 5 19 12 12 19"></polyline>
-            </svg>
-          </button>
-
-          <!-- Provisioned Room Card (Revealed upon creation) -->
-          <div class="room-created-card" id="room-created-card">
-            <div class="panel-section-title">PRIVATE ROOM READY</div>
-            
-            <div class="code-display-block">
+            <div class="capacity-row">
               <div>
-                <div style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--secondary-muted); margin-bottom: 2px;">SHORT-LIVED INVITATION</div>
-                <div class="code-digits-large" id="created-room-code">------</div>
+                <div class="setting-title">Participant limit</div>
+                <div class="setting-description">Best for focused conversations with up to 8 people.</div>
               </div>
-              <div class="timer-indicator">
-                <svg class="countdown-svg" viewBox="0 0 24 24">
-                  <circle class="countdown-circle-bg" cx="12" cy="12" r="10"></circle>
-                  <circle class="countdown-circle-progress" id="timer-ring" cx="12" cy="12" r="10"></circle>
-                </svg>
-                <span id="countdown-text">60s</span>
+              <div class="stepper" aria-label="Participant limit">
+                <button type="button" id="btn-cap-dec" aria-label="Decrease participant limit">−</button>
+                <span id="capacity-display" aria-live="polite">6</span>
+                <button type="button" id="btn-cap-inc" aria-label="Increase participant limit">+</button>
               </div>
             </div>
 
-            <div>
-              <div style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--secondary-muted); margin-bottom: 4px;">60-SECOND INVITE LINK</div>
-              <div class="link-copy-row">
-                <input type="text" class="link-input" id="share-link-input" readonly>
-                <button type="button" class="btn-secondary" id="btn-copy-link">COPY</button>
-              </div>
-            </div>
-
-            <button type="button" class="btn-primary" id="btn-enter-room" style="margin-top: 0.25rem;">
-              <span>Enter Conference Room</span>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-                <polyline points="12 5 19 12 12 19"></polyline>
-              </svg>
+            <button type="button" class="button button-primary button-full" id="btn-create-room">
+              <span>Create meeting</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             </button>
-          </div>
-        </div>
 
-        <!-- 2. JOIN CONFERENCE INTERFACE -->
-        <div class="mode-panel" id="panel-join">
-          <div class="panel-section-title">JOIN WITH A SHORT-LIVED INVITATION</div>
+            <div class="room-created-card" id="room-created-card" aria-live="polite">
+              <div class="created-header">
+                <div>
+                  <p class="eyebrow">Invitation ready</p>
+                  <div class="code-digits-large" id="created-room-code">------</div>
+                </div>
+                <div class="timer-indicator" aria-label="Invitation expiry countdown">
+                  <svg class="countdown-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle class="countdown-circle-bg" cx="12" cy="12" r="10"></circle>
+                    <circle class="countdown-circle-progress" id="timer-ring" cx="12" cy="12" r="10"></circle>
+                  </svg>
+                  <span id="countdown-text">60s</span>
+                </div>
+              </div>
 
-          <div>
-            <label class="form-label" style="display: block; margin-bottom: 6px;">ENTER 6-DIGIT CODE</label>
-            <div class="digit-boxes-row" id="digit-boxes-container">
-              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="0" id="digit-0" autocomplete="off">
-              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="1" id="digit-1" autocomplete="off">
-              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="2" id="digit-2" autocomplete="off">
-              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="3" id="digit-3" autocomplete="off">
-              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="4" id="digit-4" autocomplete="off">
-              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="5" id="digit-5" autocomplete="off">
+              <div class="link-copy-row">
+                <input type="text" class="link-input" id="share-link-input" aria-label="Invitation link" readonly>
+                <button type="button" class="button button-secondary" id="btn-copy-link">Copy</button>
+              </div>
+
+              <button type="button" class="button button-primary button-full" id="btn-enter-room">Enter meeting</button>
             </div>
           </div>
 
-          <button type="button" class="btn-join-action" id="btn-submit-code" disabled>
-            <span>JOIN CONFERENCE</span>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-          </button>
+          <div class="mode-panel" id="panel-join" role="tabpanel">
+            <div class="panel-heading">
+              <h2>Join a meeting</h2>
+              <p>Enter the six-digit code shared by the meeting host.</p>
+            </div>
 
-          <!-- Alert Notification -->
-          <div class="alert-banner" id="join-alert-banner"></div>
+            <label class="form-label" for="digit-0">Invitation code</label>
+            <div class="digit-boxes-row" id="digit-boxes-container">
+              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="0" id="digit-0" autocomplete="off" aria-label="Digit 1">
+              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="1" id="digit-1" autocomplete="off" aria-label="Digit 2">
+              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="2" id="digit-2" autocomplete="off" aria-label="Digit 3">
+              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="3" id="digit-3" autocomplete="off" aria-label="Digit 4">
+              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="4" id="digit-4" autocomplete="off" aria-label="Digit 5">
+              <input type="text" inputmode="numeric" maxlength="1" class="digit-box" data-index="5" id="digit-5" autocomplete="off" aria-label="Digit 6">
+            </div>
+
+            <button type="button" class="button button-primary button-full" id="btn-submit-code" disabled>Join meeting</button>
+            <div class="alert-banner" id="join-alert-banner" role="alert"></div>
+          </div>
         </div>
+
+        <p class="privacy-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          Media is encrypted in transit. Invitations expire automatically.
+        </p>
       </section>
 
-      <!-- Right Column: Interactive Calendar & Meeting Schedule -->
-      <section class="calendar-schedule-col">
-        <div class="schedule-card">
-          <!-- Calendar Header & Navigation -->
+      <aside class="schedule-column" aria-label="Time and schedule">
+        <section class="clock-card" aria-label="Local time">
+          <div class="analog-clock" role="img" aria-label="Analog clock showing your local time">
+            <span class="clock-number clock-twelve">12</span>
+            <span class="clock-number clock-three">3</span>
+            <span class="clock-number clock-six">6</span>
+            <span class="clock-number clock-nine">9</span>
+            <span class="clock-hand clock-hour" id="clock-hour-hand"></span>
+            <span class="clock-hand clock-minute" id="clock-minute-hand"></span>
+            <span class="clock-hand clock-second" id="clock-second-hand"></span>
+            <span class="clock-pin"></span>
+          </div>
+          <div class="clock-details">
+            <p class="eyebrow">Your local time</p>
+            <time class="digital-time" id="live-time-display">--:--</time>
+            <p class="clock-date" id="clock-date-display">Loading date…</p>
+          </div>
+        </section>
+
+        <section class="schedule-card">
           <div class="calendar-header">
             <div>
-              <div class="calendar-month-title" id="cal-month-year">September 2026</div>
-              <div style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--secondary-muted);" id="cal-selected-date-str">Saturday, Sep 19</div>
+              <h2 class="calendar-month-title" id="cal-month-year">September 2026</h2>
+              <p class="calendar-selected-date" id="cal-selected-date-str">Saturday, Sep 19</p>
             </div>
             <div class="calendar-nav-buttons">
-              <button type="button" class="btn-cal-nav" id="btn-cal-prev" aria-label="Previous month">&lt;</button>
-              <button type="button" class="btn-cal-nav" id="btn-cal-next" aria-label="Next month">&gt;</button>
+              <button type="button" id="btn-cal-prev" aria-label="Previous month">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <button type="button" id="btn-cal-next" aria-label="Next month">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
             </div>
           </div>
 
-          <!-- Interactive Calendar Grid -->
           <div class="calendar-grid" id="calendar-grid">
-            <!-- Weekday headers -->
-            <div class="cal-weekday">SU</div>
-            <div class="cal-weekday">MO</div>
-            <div class="cal-weekday">TU</div>
-            <div class="cal-weekday">WE</div>
-            <div class="cal-weekday">TH</div>
-            <div class="cal-weekday">FR</div>
-            <div class="cal-weekday">SA</div>
-            <!-- Day cells will be generated dynamically -->
+            <div class="cal-weekday">S</div><div class="cal-weekday">M</div><div class="cal-weekday">T</div>
+            <div class="cal-weekday">W</div><div class="cal-weekday">T</div><div class="cal-weekday">F</div><div class="cal-weekday">S</div>
           </div>
 
-          <!-- Scheduled Conferences Section -->
           <div class="schedule-list-header">
-            <div class="panel-section-title">SCHEDULED CONFERENCES</div>
-            <button type="button" class="btn-secondary" id="btn-open-schedule-modal" style="padding: 0.35rem 0.75rem; font-size: 0.72rem;">
-              + SCHEDULE
-            </button>
+            <div>
+              <h3>Upcoming</h3>
+              <p>Meetings scheduled for you</p>
+            </div>
+            <button type="button" class="button button-secondary button-compact" id="btn-open-schedule-modal">Schedule</button>
           </div>
-
-          <!-- Dynamic List of Scheduled Conferences -->
-          <div class="schedule-list" id="schedule-list">
-            <!-- Loaded dynamically from /api/rooms/schedule -->
-          </div>
-        </div>
-      </section>
+          <div class="schedule-list" id="schedule-list"></div>
+        </section>
+      </aside>
     </main>
-
-    <!-- Bottom Footer -->
-    <footer class="bottom-footer">
-      <div>KNOCKNET // PRIVATE MEETINGS WITH VERIFIED PARTICIPANTS</div>
-      <div style="display: flex; gap: 1.25rem;">
-        <span>GOOGLE IDENTITY</span>
-        <span>ENCRYPTED MEDIA</span>
-        <span>EPHEMERAL INVITES</span>
-      </div>
-    </footer>
   </div>
 
-  <!-- Schedule Meeting Modal -->
-  <div class="modal-backdrop" id="schedule-modal">
+  <div class="modal-backdrop" id="schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-title">
     <div class="modal-dialog">
       <div class="modal-header-row">
-        <h3>SCHEDULE A CONFERENCE</h3>
-        <button type="button" class="btn-modal-close" id="btn-close-schedule-modal">&times;</button>
+        <div>
+          <p class="eyebrow">New event</p>
+          <h2 id="schedule-title">Schedule a meeting</h2>
+        </div>
+        <button type="button" class="icon-button" id="btn-close-schedule-modal" aria-label="Close">×</button>
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="sched-title">CONFERENCE TITLE</label>
-        <input type="text" id="sched-title" class="text-input" placeholder="e.g. Sprint Architecture Sync" value="Sprint Architecture Sync">
+        <label class="form-label" for="sched-title">Meeting name</label>
+        <input type="text" id="sched-title" class="text-input" placeholder="Weekly planning" value="Sprint Architecture Sync">
       </div>
-
       <div class="form-group">
-        <label class="form-label" for="sched-time">MEETING TIME</label>
-        <input type="text" id="sched-time" class="text-input" placeholder="e.g. 04:00 PM" value="04:00 PM">
+        <label class="form-label" for="sched-time">Time</label>
+        <input type="text" id="sched-time" class="text-input" placeholder="4:00 PM" value="04:00 PM">
       </div>
-
       <div class="form-group">
-        <label class="form-label" for="sched-host">HOST CALLSIGN</label>
-        <input type="text" id="sched-host" class="text-input" placeholder="e.g. Lead Dev" value="Lead Dev">
+        <label class="form-label" for="sched-host">Host name</label>
+        <input type="text" id="sched-host" class="text-input" placeholder="Your name" value="Host">
       </div>
-
-      <div class="capacity-row" style="margin-top: 0.25rem;">
-        <span class="form-label">MAX PARTICIPANTS</span>
-        <div class="capacity-controls">
-          <button type="button" class="btn-counter" id="btn-sched-cap-dec">−</button>
-          <span class="capacity-val" id="sched-cap-val">6</span>
-          <button type="button" class="btn-counter" id="btn-sched-cap-inc">+</button>
+      <div class="capacity-row modal-capacity">
+        <div>
+          <div class="setting-title">Participant limit</div>
+          <div class="setting-description">Choose between 2 and 8.</div>
+        </div>
+        <div class="stepper">
+          <button type="button" id="btn-sched-cap-dec" aria-label="Decrease participant limit">−</button>
+          <span id="sched-cap-val">6</span>
+          <button type="button" id="btn-sched-cap-inc" aria-label="Increase participant limit">+</button>
         </div>
       </div>
-
-      <button type="button" class="btn-primary" id="btn-confirm-schedule" style="margin-top: 0.5rem;">
-        <span>Confirm & Save Schedule</span>
-      </button>
+      <button type="button" class="button button-primary button-full" id="btn-confirm-schedule">Save meeting</button>
     </div>
   </div>
 
-  <!-- Sleek Toast Notification -->
-  <div class="toast-notice" id="toast-notice">Notice</div>
-
-  <!-- Scripts -->
+  <div class="toast-notice" id="toast-notice" role="status" aria-live="polite">Notice</div>
   <script type="module" src="/js/fluid.js"></script>
   <script type="module" src="/js/app.js"></script>
 </body>

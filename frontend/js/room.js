@@ -91,6 +91,52 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const roomToast = document.getElementById('room-toast');
 
+  let audioContext = null;
+
+  function getAudioContext() {
+    if (!audioContext) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) audioContext = new AudioContextClass();
+    }
+    return audioContext;
+  }
+
+  function playParticipantJoinedSound() {
+    const context = getAudioContext();
+    if (!context) return;
+
+    const play = () => {
+      const startAt = context.currentTime + 0.02;
+      [659.25, 880].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const noteStart = startAt + (index * 0.12);
+        const noteEnd = noteStart + 0.24;
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, noteStart);
+        gain.gain.setValueAtTime(0.0001, noteStart);
+        gain.gain.exponentialRampToValueAtTime(0.055, noteStart + 0.025);
+        gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(noteStart);
+        oscillator.stop(noteEnd + 0.02);
+      });
+    };
+
+    if (context.state === 'suspended') {
+      context.resume().then(play).catch(() => {});
+    } else {
+      play();
+    }
+  }
+
+  document.addEventListener('pointerdown', () => {
+    const context = getAudioContext();
+    if (context?.state === 'suspended') context.resume().catch(() => {});
+  }, { once: true, capture: true });
+
   // Set Local Display Name & Initials
   localDisplayName.textContent = displayName;
   localAvatarInitials.textContent = displayName.substring(0, 2).toUpperCase();
@@ -110,7 +156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     headerCodeVal.textContent = activeCode;
     modalCodeDisplay.textContent = activeCode;
     modalLinkInput.value = `${window.location.origin}/room.html#invite=${encodeURIComponent(activeCode)}`;
-    localRole.textContent = isHost ? 'HOST' : 'VERIFIED';
+    localRole.textContent = isHost ? 'Host' : 'Verified';
     btnRefreshCode.hidden = !isHost;
   } catch (e) {
     authGate.classList.add('active');
@@ -166,13 +212,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         <video autoplay playsinline></video>
         <div class="avatar-placeholder">
           <div class="avatar-circle">${avatarText}</div>
-          <div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--secondary-muted);">VIDEO MUTED</div>
+          <div class="camera-state-label">Camera off</div>
         </div>
         <div class="tile-overlay">
           <div class="participant-name-tag">
             <span>${escapeHtml(peerDisplayName || 'Peer')}</span>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div class="participant-media-state">
             <div class="audio-level-meter">
               <div class="audio-meter-bar" style="height: 4px;"></div>
               <div class="audio-meter-bar" style="height: 7px;"></div>
@@ -191,7 +237,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       tile.querySelector('.audio-level-meter').id = `meter-${peerId}`;
       videoStage.appendChild(tile);
       updateGridLayout();
-      showToast(`${peerDisplayName || 'A peer'} entered conference`);
+      playParticipantJoinedSound();
+      showToast(`${peerDisplayName || 'A participant'} joined`);
     }
 
     const videoEl = tile.querySelector('video');
@@ -242,7 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function handleCountChange(count) {
     const total = count || (videoStage.querySelectorAll('.video-tile').length);
-    participantCountText.textContent = `${total} / ${maxParticipants} PEERS`;
+    participantCountText.textContent = `${total} of ${maxParticipants} ${total === 1 ? 'participant' : 'participants'}`;
   }
 
   // 5. Dynamic Grid Resizing
@@ -269,6 +316,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const enabled = rtc.toggleAudio();
     btnToggleMic.classList.toggle('danger-off', !enabled);
     tileLocal.classList.toggle('audio-muted', !enabled);
+    btnToggleMic.setAttribute('aria-label', enabled ? 'Mute microphone' : 'Unmute microphone');
+    btnToggleMic.title = enabled ? 'Mute microphone' : 'Unmute microphone';
     showToast(enabled ? 'Microphone active' : 'Microphone muted');
   });
 
@@ -276,6 +325,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const enabled = rtc.toggleVideo();
     btnToggleCam.classList.toggle('danger-off', !enabled);
     tileLocal.classList.toggle('video-off', !enabled);
+    btnToggleCam.setAttribute('aria-label', enabled ? 'Turn off camera' : 'Turn on camera');
+    btnToggleCam.title = enabled ? 'Turn off camera' : 'Turn on camera';
     showToast(enabled ? 'Camera active' : 'Camera disabled');
   });
 
@@ -283,12 +334,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const res = await rtc.toggleScreenShare();
     if (res.isSharing) {
       btnToggleScreen.classList.add('active');
-      showToast('Screen broadcasting initiated');
+      showToast('Screen sharing started');
       // Local preview screen feed
       localVideo.srcObject = res.stream;
     } else {
       btnToggleScreen.classList.remove('active');
-      showToast('Screen broadcast ended');
+      showToast('Screen sharing stopped');
       localVideo.srcObject = rtc.localStream;
     }
   });
@@ -335,16 +386,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('A new 60-second invitation is ready');
       }
     } catch (e) {
-      showToast('Failed to refresh token: ' + e.message);
+      showToast('Could not create a new invitation: ' + e.message);
     } finally {
       btnRefreshCode.disabled = false;
-      btnRefreshCode.textContent = 'REGENERATE FRESH 60s TOKEN';
+      btnRefreshCode.textContent = 'Create a new invitation';
     }
   });
 
   // 8. Leave Conference Call
   btnLeaveCall.addEventListener('click', () => {
-    if (confirm('Leave current conference session?')) {
+    if (confirm('Leave this meeting?')) {
       rtc.leave();
       window.location.href = '/';
     }

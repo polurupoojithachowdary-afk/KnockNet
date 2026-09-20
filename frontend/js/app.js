@@ -14,11 +14,12 @@ import {
  */
 document.addEventListener('DOMContentLoaded', () => {
   const authButton = document.getElementById('btn-auth');
+  const authButtonLabel = document.getElementById('auth-button-label');
   const authStatus = document.getElementById('auth-status');
 
   observeAuth((user) => {
-    authButton.textContent = user ? 'SIGN OUT' : 'SIGN IN WITH GOOGLE';
-    authStatus.textContent = user ? displayNameFor(user) : 'SIGN IN REQUIRED';
+    authButtonLabel.textContent = user ? 'Sign out' : 'Continue with Google';
+    authStatus.textContent = user ? displayNameFor(user) : 'Not signed in';
     authStatus.classList.toggle('authenticated', Boolean(user));
     if (user) loadScheduledMeetings();
     else renderMeetingsList([]);
@@ -26,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   authButton.addEventListener('click', async () => {
     try {
-      if (authButton.textContent === 'SIGN OUT') await signOut();
+      if (authButtonLabel.textContent === 'Sign out') await signOut();
       else await signInWithGoogle();
     } catch (error) {
       showToast(error.message || 'Unable to complete sign in');
@@ -35,9 +36,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 1. Live Clock
   const liveTimeDisplay = document.getElementById('live-time-display');
+  const clockDateDisplay = document.getElementById('clock-date-display');
+  const clockHourHand = document.getElementById('clock-hour-hand');
+  const clockMinuteHand = document.getElementById('clock-minute-hand');
+  const clockSecondHand = document.getElementById('clock-second-hand');
+
   function updateLiveClock() {
     const now = new Date();
-    liveTimeDisplay.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const seconds = now.getSeconds();
+
+    liveTimeDisplay.textContent = now.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    clockDateDisplay.textContent = now.toLocaleDateString([], {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric'
+    });
+    clockHourHand.style.transform = `rotate(${(hours % 12) * 30 + minutes * 0.5}deg)`;
+    clockMinuteHand.style.transform = `rotate(${minutes * 6 + seconds * 0.1}deg)`;
+    clockSecondHand.style.transform = `rotate(${seconds * 6}deg)`;
   }
   updateLiveClock();
   setInterval(updateLiveClock, 1000);
@@ -53,6 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tabBtnJoin.classList.remove('active');
     panelHost.classList.add('active');
     panelJoin.classList.remove('active');
+    tabBtnHost.setAttribute('aria-selected', 'true');
+    tabBtnJoin.setAttribute('aria-selected', 'false');
   });
 
   tabBtnJoin.addEventListener('click', () => {
@@ -60,6 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tabBtnHost.classList.remove('active');
     panelJoin.classList.add('active');
     panelHost.classList.remove('active');
+    tabBtnJoin.setAttribute('aria-selected', 'true');
+    tabBtnHost.setAttribute('aria-selected', 'false');
     // Auto-focus first digit box
     const firstDigit = document.getElementById('digit-0');
     if (firstDigit) firstDigit.focus();
@@ -100,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnCreateRoom.addEventListener('click', async () => {
     btnCreateRoom.disabled = true;
-    btnCreateRoom.innerHTML = '<span>Creating private room...</span>';
+    btnCreateRoom.innerHTML = '<span>Creating meeting…</span>';
 
     try {
       const user = await requireAuthenticatedUser();
@@ -130,6 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       roomCreatedCard.classList.add('active');
+      panelHost.classList.add('room-ready');
       startCountdownTimer(data.codeSecondsRemaining || 60);
       showToast('Private room created. The invite expires in 60 seconds.');
 
@@ -138,8 +164,8 @@ document.addEventListener('DOMContentLoaded', () => {
     } finally {
       btnCreateRoom.disabled = false;
       btnCreateRoom.innerHTML = `
-        <span>Create Private Room</span>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
+        <span>Create meeting</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           <line x1="5" y1="12" x2="19" y2="12"></line>
           <polyline points="12 5 19 12 12 19"></polyline>
         </svg>
@@ -165,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (remaining <= 0) {
         clearInterval(countdownInterval);
-        countdownText.textContent = 'EXPIRED';
+        countdownText.textContent = 'Expired';
         countdownText.style.color = '#df5858';
         timerRing.style.stroke = '#df5858';
       }
@@ -180,9 +206,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!shareLinkInput.value) return;
     try {
       await navigator.clipboard.writeText(shareLinkInput.value);
-      btnCopyLink.textContent = 'COPIED!';
+      btnCopyLink.textContent = 'Copied';
       showToast('Direct join link copied to clipboard');
-      setTimeout(() => { btnCopyLink.textContent = 'COPY'; }, 2000);
+      setTimeout(() => { btnCopyLink.textContent = 'Copy'; }, 2000);
     } catch (err) {
       shareLinkInput.select();
       document.execCommand('copy');
@@ -266,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (code.length !== 6) return;
 
     btnSubmitCode.disabled = true;
-    btnSubmitCode.innerHTML = '<span>Verifying Token...</span>';
+    btnSubmitCode.innerHTML = '<span>Verifying invitation…</span>';
     hideAlert();
 
     try {
@@ -296,10 +322,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } finally {
       btnSubmitCode.disabled = false;
       btnSubmitCode.innerHTML = `
-        <span>JOIN CONFERENCE</span>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
+        <span>Join meeting</span>
       `;
     }
   });
@@ -372,8 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (isToday) cell.classList.add('today');
       if (isSelected) cell.classList.add('selected');
 
-      // Sample indicator for days with meetings
-      if (day === today.getDate() || day === today.getDate() + 2) {
+      if (day === today.getDate() && month === today.getMonth() && year === today.getFullYear()) {
         cell.classList.add('has-meeting');
       }
 
@@ -447,7 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderMeetingsList(meetings) {
     scheduleList.innerHTML = '';
     if (!meetings || meetings.length === 0) {
-      scheduleList.innerHTML = '<div style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--secondary-muted); padding: 0.5rem 0;">No meetings scheduled for this date.</div>';
+      scheduleList.innerHTML = '<div class="schedule-empty">No meetings scheduled.</div>';
       return;
     }
 
@@ -459,13 +481,13 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="schedule-item-info">
           <div class="schedule-item-title">${escapeHtml(m.title)}</div>
           <div class="schedule-item-meta">
-            <span>● ${escapeHtml(m.scheduledTime || 'Today')}</span>
-            <span>CAP: ${m.maxParticipants || 6} PEERS</span>
+            <span>${escapeHtml(m.scheduledTime || 'Today')}</span>
+            <span>Up to ${m.maxParticipants || 6} people</span>
           </div>
         </div>
         <div class="schedule-item-actions">
           <button type="button" class="btn-launch-schedule" data-room-id="${m.roomId}">
-            LAUNCH / JOIN
+            Join
           </button>
         </div>
       `;

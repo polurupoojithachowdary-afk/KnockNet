@@ -1,0 +1,9 @@
+backend/
+.gradle/
+.idea/
+.tmp-ui/
+.tmp-ui-check/
+.tmp-edge-profile/
+**/build/
+frontend/dist/
+frontend/node_modules/

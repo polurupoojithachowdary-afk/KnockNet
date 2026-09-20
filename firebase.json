@@ -1,0 +1,15 @@
+{
+  "auth": {
+    "providers": {
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Knocknet",
+        "supportEmail": "polurupoojithachowdary@gmail.com",
+        "authorizedRedirectUris": [
+          "https://knock-net.vercel.app",
+          "https://knocknet-99ceb.firebaseapp.com",
+          "https://knocknet-99ceb.web.app"
+        ]
+      }
+    }
+  }
+}
