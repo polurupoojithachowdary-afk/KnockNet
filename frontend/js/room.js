@@ -501,32 +501,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Initialize: fetch languages from backend
+  // Initialize: fetch languages and set defaults (Telugu -> English)
   translator.init().then(() => {
     if (translator.languages.length > 0) {
-      // Populate source language dropdown
+      // Populate source language dropdown (default: Telugu)
       selectSourceLang.innerHTML = '';
       translator.languages.forEach(lang => {
         const opt = document.createElement('option');
         opt.value = lang.code;
         opt.textContent = lang.name;
-        if (lang.code === 'en') opt.selected = true;
+        if (lang.code === 'te') opt.selected = true;
         selectSourceLang.appendChild(opt);
       });
 
-      // Populate target language dropdown (exclude source)
+      // Populate target language dropdown (default: English)
       selectTargetLang.innerHTML = '';
       translator.languages.forEach(lang => {
         const opt = document.createElement('option');
         opt.value = lang.code;
         opt.textContent = lang.name;
-        if (lang.code === 'hi') opt.selected = true;
+        if (lang.code === 'en') opt.selected = true;
         selectTargetLang.appendChild(opt);
       });
-    }
 
-    if (!translator.configured) {
-      btnToggleTranslate.title = 'Voice translation not configured on server';
+      translator.setSourceLanguage(selectSourceLang.value || 'te');
+      translator.setTargetLanguage(selectTargetLang.value || 'en');
     }
   });
 

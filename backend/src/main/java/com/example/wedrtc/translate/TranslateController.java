@@ -86,11 +86,59 @@ public class TranslateController {
             ));
 
         } catch (Exception e) {
-            log.error("Translation failed for user {}: {}", principal.getName(), e.getMessage(), e);
+            String userName = principal != null ? principal.getName() : "anonymous";
+            log.error("Translation failed for user {}: {}", userName, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "error", "TRANSLATION_FAILED",
                     "message", "Could not translate the audio. Try again in a moment."
+            ));
+        }
+    }
+
+    /**
+     * Direct text translation endpoint (for browser-transcribed speech or sign text).
+     */
+    @PostMapping(value = "/text", consumes = "application/json")
+    public ResponseEntity<?> translateTextDirect(
+            @RequestBody Map<String, String> payload,
+            Principal principal) {
+
+        if (!translationService.isConfigured()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "success", false,
+                    "error", "TRANSLATION_NOT_CONFIGURED",
+                    "message", "Voice translation is not available on this server"
+            ));
+        }
+
+        String text = payload.getOrDefault("text", "").trim();
+        String sourceLang = payload.getOrDefault("sourceLang", "te");
+        String targetLang = payload.getOrDefault("targetLang", "en");
+
+        if (text.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "error", "EMPTY_TEXT",
+                    "message", "Text cannot be empty"
+            ));
+        }
+
+        try {
+            String translated = translationService.translateText(text, sourceLang, targetLang);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "original", text,
+                    "translated", translated,
+                    "targetLanguage", targetLang
+            ));
+        } catch (Exception e) {
+            String userName = principal != null ? principal.getName() : "anonymous";
+            log.error("Text translation failed for user {}: {}", userName, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "error", "TRANSLATION_FAILED",
+                    "message", "Could not translate text. Try again in a moment."
             ));
         }
     }

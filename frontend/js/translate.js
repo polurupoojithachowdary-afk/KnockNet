@@ -3,13 +3,34 @@ import { authenticatedFetch } from './api.js';
 /**
  * Knocknet Push-to-Talk Voice Translation Module
  *
- * Records audio while the user holds the translate button, sends the
- * complete utterance to the backend for NVIDIA ASR + NMT, then displays
- * the translated subtitle and speaks it via the browser SpeechSynthesis API.
+ * Powered by NVIDIA Riva Neural Machine Translation (riva-translate-4b-instruct-v2)
+ * & OpenAI Whisper Large v3 ASR via NVIDIA NIM API.
  *
- * Everything is plug-and-play from the user's perspective — no API keys,
- * no setup, just hold the button and speak.
+ * Supports Telugu (te) to English (en), Hindi, Tamil, Spanish, and 30+ languages.
+ * Supports on-device SpeechRecognition (Chrome/Edge) with backend & direct NVIDIA fallbacks.
  */
+
+export const DEFAULT_LANGUAGES = [
+  { code: 'te', name: 'Telugu' },
+  { code: 'en', name: 'English' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'ta', name: 'Tamil' },
+  { code: 'bn', name: 'Bengali' },
+  { code: 'mr', name: 'Marathi' },
+  { code: 'gu', name: 'Gujarati' },
+  { code: 'kn', name: 'Kannada' },
+  { code: 'ml', name: 'Malayalam' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'zh', name: 'Chinese' },
+  { code: 'ar', name: 'Arabic' },
+  { code: 'ru', name: 'Russian' }
+];
+
+const NVIDIA_DIRECT_KEY = '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';
+
 export class TranslateManager {
   constructor(options = {}) {
     this.onSubtitle = options.onSubtitle || (() => {});
@@ -19,12 +40,15 @@ export class TranslateManager {
 
     this.enabled = false;
     this.recording = false;
-    this.sourceLang = 'en';
-    this.targetLang = 'hi';
+    this.sourceLang = 'te';
+    this.targetLang = 'en';
     this.mediaRecorder = null;
     this.audioChunks = [];
-    this.languages = [];
-    this.configured = false;
+    this.languages = [...DEFAULT_LANGUAGES];
+    this.configured = true;
+
+    this.speechRecognition = null;
+    this.recognizedSpeechText = '';
   }
 
   /**
@@ -35,13 +59,13 @@ export class TranslateManager {
     try {
       const res = await authenticatedFetch('/api/translate/languages');
       const data = await res.json();
-      if (data.success) {
-        this.languages = data.languages || [];
-        this.configured = data.configured;
+      if (data.success && Array.isArray(data.languages) && data.languages.length > 0) {
+        this.languages = data.languages;
+        this.configured = data.configured !== false;
       }
     } catch (e) {
-      console.warn('Translation service unavailable:', e.message);
-      this.configured = false;
+      console.warn('Backend translation service not reachable, using client NVIDIA fallback:', e.message);
+      this.configured = true;
     }
     return this;
   }
@@ -62,6 +86,47 @@ export class TranslateManager {
   }
 
   /**
+   * Creates and starts on-device speech recognition if supported by browser.
+   */
+  _startSpeechRecognition() {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return;
+
+    try {
+      this.recognizedSpeechText = '';
+      this.speechRecognition = new SpeechRec();
+      this.speechRecognition.continuous = true;
+      this.speechRecognition.interimResults = true;
+      this.speechRecognition.lang = this.mapToSpeechRecognitionLang(this.sourceLang);
+
+      this.speechRecognition.onresult = (event) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript + ' ';
+        }
+        this.recognizedSpeechText = transcript.trim();
+      };
+
+      this.speechRecognition.onerror = (e) => {
+        console.warn('Speech recognition notice:', e.error);
+      };
+
+      this.speechRecognition.start();
+    } catch (e) {
+      console.warn('Could not start webkitSpeechRecognition:', e.message);
+      this.speechRecognition = null;
+    }
+  }
+
+  _stopSpeechRecognition() {
+    if (this.speechRecognition) {
+      try {
+        this.speechRecognition.stop();
+      } catch (e) {}
+    }
+  }
+
+  /**
    * Start recording audio from the local microphone stream.
    * Called when the user presses the translate button.
    */
@@ -74,12 +139,13 @@ export class TranslateManager {
       return;
     }
 
-    // Create a stream with only the audio track for the MediaRecorder
-    const audioOnlyStream = new MediaStream(audioTracks);
+    // Start speech recognition in parallel
+    this._startSpeechRecognition();
 
+    const audioOnlyStream = new MediaStream(audioTracks);
     this.audioChunks = [];
+
     try {
-      // Prefer webm/opus for smaller payloads; fall back to whatever is supported
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/webm')
@@ -113,91 +179,161 @@ export class TranslateManager {
    * Called when the user releases the translate button.
    */
   stopRecording() {
-    if (!this.recording || !this.mediaRecorder) return;
+    if (!this.recording) return;
 
-    try {
-      this.mediaRecorder.stop();
-    } catch (e) {
-      // Recorder may already be inactive
+    this._stopSpeechRecognition();
+
+    if (this.mediaRecorder) {
+      try {
+        this.mediaRecorder.stop();
+      } catch (e) {}
     }
     this.recording = false;
     this.onStateChange({ recording: false, processing: true });
   }
 
   /**
-   * Sends the recorded audio blob to the backend translation endpoint,
+   * Translates text using NVIDIA Riva Translate 4B Instruct v2.
+   * Attempts backend /api/translate/text first, falls back to direct NVIDIA API.
+   */
+  async translateText(text, srcLang, tgtLang) {
+    // 1. Try Spring Boot backend
+    try {
+      const res = await authenticatedFetch('/api/translate/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          sourceLang: srcLang,
+          targetLang: tgtLang
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.translated) {
+          return data.translated.trim();
+        }
+      }
+    } catch (e) {
+      // Backend not running (e.g. standalone Vercel preview or demo mode)
+    }
+
+    // 2. Direct NVIDIA NIM API call using Riva Translate 4B Instruct v2
+    const pairTag = `${srcLang.toLowerCase().split('-')[0]}-${tgtLang.toLowerCase().split('-')[0]}`;
+    const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${NVIDIA_DIRECT_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'nvidia/riva-translate-4b-instruct-v2',
+        messages: [
+          { role: 'system', content: pairTag },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.1,
+        max_tokens: 512
+      })
+    });
+
+    if (!nvidiaRes.ok) {
+      throw new Error(`NVIDIA translation failed: ${nvidiaRes.status}`);
+    }
+
+    const nvidiaData = await nvidiaRes.json();
+    const content = nvidiaData?.choices?.[0]?.message?.content;
+    return content ? content.trim() : '';
+  }
+
+  /**
+   * Sends the recorded utterance to the translation pipeline,
    * displays the subtitle, and speaks the translated text.
    */
   async processRecording() {
-    if (!this.audioChunks.length) {
-      this.onStateChange({ processing: false });
-      return;
-    }
-
-    const audioBlob = new Blob(this.audioChunks, {
-      type: this.mediaRecorder?.mimeType || 'audio/webm'
-    });
-
-    // Sanity check: ignore very short recordings (< 0.5s of audio is likely noise)
-    if (audioBlob.size < 1000) {
-      this.onStateChange({ processing: false });
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
-    formData.append('sourceLang', this.sourceLang);
-    formData.append('targetLang', this.targetLang);
+    const speechText = this.recognizedSpeechText?.trim();
 
     try {
-      const res = await authenticatedFetch('/api/translate', {
-        method: 'POST',
-        body: formData
-        // Note: Do NOT set Content-Type header — browser sets it with boundary
-      });
+      // Scenario A: We captured recognized text via Web Speech API
+      if (speechText) {
+        const translated = await this.translateText(speechText, this.sourceLang, this.targetLang);
 
-      const data = await res.json();
+        if (translated) {
+          this.emitTranslation(speechText, translated, this.targetLang);
+          return;
+        }
+      }
 
-      if (!data.success) {
-        this.onError(data.message || 'Translation failed');
+      // Scenario B: Fall back to sending raw audio to backend
+      if (!this.audioChunks.length) {
         this.onStateChange({ processing: false });
         return;
       }
 
+      const audioBlob = new Blob(this.audioChunks, {
+        type: this.mediaRecorder?.mimeType || 'audio/webm'
+      });
+
+      if (audioBlob.size < 1000) {
+        this.onStateChange({ processing: false });
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+      formData.append('sourceLang', this.sourceLang);
+      formData.append('targetLang', this.targetLang);
+
+      const res = await authenticatedFetch('/api/translate', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Translation failed');
+      }
+
       if (data.translated && data.translated.trim()) {
-        // Show subtitle on screen
-        this.onSubtitle({
-          original: data.original,
-          translated: data.translated,
-          targetLanguage: data.targetLanguage
-        });
-
-        // Speak the translated text via browser TTS
-        this.speak(data.translated, data.targetLanguage);
-
-        // Send to peer via WebRTC DataChannel so they see the subtitle
-        this.sendToPeer({
-          type: 'translation',
-          original: data.original,
-          translated: data.translated,
-          targetLanguage: data.targetLanguage
-        });
+        this.emitTranslation(data.original, data.translated, data.targetLanguage);
       }
     } catch (e) {
-      this.onError('Translation request failed: ' + e.message);
+      console.error('Translation error:', e);
+      this.onError('Translation notice: ' + e.message);
     } finally {
       this.onStateChange({ processing: false });
     }
   }
 
   /**
+   * Handles subtitle display, speech synthesis, and WebRTC peer broadcast.
+   */
+  emitTranslation(original, translated, targetLanguage) {
+    this.onSubtitle({
+      original,
+      translated,
+      targetLanguage
+    });
+
+    // Speak translated text via browser SpeechSynthesis
+    this.speak(translated, targetLanguage);
+
+    // Send to peer via WebRTC DataChannel
+    this.sendToPeer({
+      type: 'translation',
+      original,
+      translated,
+      targetLanguage
+    });
+  }
+
+  /**
    * Speak text using the browser's built-in SpeechSynthesis API.
-   * Free, instant, supports 50+ languages, no API call needed.
    */
   speak(text, languageCode) {
     if (!window.speechSynthesis || !text) return;
 
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -206,7 +342,6 @@ export class TranslateManager {
     utterance.pitch = 1.0;
     utterance.volume = 1.0;
 
-    // Try to find a voice that matches the target language
     const voices = window.speechSynthesis.getVoices();
     const matchingVoice = voices.find(v => v.lang.startsWith(languageCode)) ||
                           voices.find(v => v.lang.startsWith(languageCode.split('-')[0]));
@@ -217,7 +352,28 @@ export class TranslateManager {
     window.speechSynthesis.speak(utterance);
   }
 
-  /** Map our language codes to BCP-47 for SpeechSynthesis. */
+  mapToSpeechRecognitionLang(code) {
+    const map = {
+      'te': 'te-IN',
+      'en': 'en-US',
+      'hi': 'hi-IN',
+      'ta': 'ta-IN',
+      'bn': 'bn-IN',
+      'mr': 'mr-IN',
+      'gu': 'gu-IN',
+      'kn': 'kn-IN',
+      'ml': 'ml-IN',
+      'es': 'es-ES',
+      'fr': 'fr-FR',
+      'de': 'de-DE',
+      'ja': 'ja-JP',
+      'zh': 'zh-CN',
+      'ar': 'ar-SA',
+      'ru': 'ru-RU'
+    };
+    return map[code] || code;
+  }
+
   mapToSpeechSynthesisLang(code) {
     const map = {
       'en': 'en-US', 'hi': 'hi-IN', 'te': 'te-IN', 'ta': 'ta-IN',
@@ -243,12 +399,12 @@ export class TranslateManager {
         fromPeer: true
       });
 
-      // Optionally speak peer translations too
       this.speak(data.translated, data.targetLanguage);
     }
   }
 
   destroy() {
+    this._stopSpeechRecognition();
     if (this.mediaRecorder && this.recording) {
       try { this.mediaRecorder.stop(); } catch (e) {}
     }

@@ -68,7 +68,7 @@ public class NvidiaTranslationService {
         // Build multipart-like JSON request for the ASR endpoint
         String requestBody = """
                 {
-                  "model": "nvidia/canary-1b",
+                  "model": "openai/whisper-large-v3",
                   "language": "%s",
                   "response_format": "json",
                   "file": "data:audio/wav;base64,%s"
@@ -96,24 +96,25 @@ public class NvidiaTranslationService {
 
     /**
      * Translate text using NVIDIA NMT via the chat completions endpoint.
-     * Uses a general-purpose multilingual model for translation.
+     * Uses NVIDIA Riva Translate 4B Instruct v2.
      */
     public String translateText(String text, String sourceLanguage, String targetLanguage) throws IOException, InterruptedException {
         if (!isConfigured()) {
             throw new IllegalStateException("NVIDIA API key is not configured");
         }
 
-        String sourceName = languageDisplayName(sourceLanguage);
-        String targetName = languageDisplayName(targetLanguage);
+        String srcCode = sourceLanguage != null ? sourceLanguage.toLowerCase().split("[-_]")[0] : "en";
+        String tgtCode = targetLanguage != null ? targetLanguage.toLowerCase().split("[-_]")[0] : "en";
+        String pairTag = srcCode + "-" + tgtCode;
 
-        // Use a chat-completion model for translation (available on free tier)
+        // Use NVIDIA Riva Translate 4B Instruct v2 with language pair system tag
         String requestBody = """
                 {
-                  "model": "nvidia/llama-3.3-nemotron-super-49b-v1",
+                  "model": "nvidia/riva-translate-4b-instruct-v2",
                   "messages": [
                     {
                       "role": "system",
-                      "content": "You are a professional translator. Translate the following text from %s to %s. Return ONLY the translated text, nothing else. No explanations, no quotes, no labels."
+                      "content": "%s"
                     },
                     {
                       "role": "user",
@@ -123,7 +124,7 @@ public class NvidiaTranslationService {
                   "temperature": 0.1,
                   "max_tokens": 512
                 }
-                """.formatted(sourceName, targetName, escapeJson(text));
+                """.formatted(pairTag, escapeJson(text));
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(NVIDIA_NMT_URL))
