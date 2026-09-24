@@ -229,73 +229,104 @@ export class SignLanguageManager {
     const thumbPinkyDist = dist(lm[4], lm[20]);
     const middleRingDist = dist(lm[12], lm[16]);
 
-    // Check MediaPipe pre-trained gesture with high confidence (>0.75)
-    if (canned && canned.score > 0.75) {
+    // Check MediaPipe pre-trained gesture with high confidence (>0.70)
+    if (canned && canned.score > 0.70) {
       const gName = canned.categoryName;
       if (gName === 'Thumb_Up') {
-        return { sign: 'THUMBS_UP', spoken: 'Yes', label: 'Yes (Thumbs Up)', score: canned.score };
+        return { sign: 'YES', spoken: 'Yes', label: 'Yes (Thumbs Up)', score: canned.score };
       }
       if (gName === 'Thumb_Down') {
-        return { sign: 'THUMBS_DOWN', spoken: 'No', label: 'No (Thumbs Down)', score: canned.score };
+        return { sign: 'NO', spoken: 'No', label: 'No (Thumbs Down)', score: canned.score };
       }
       if (gName === 'ILoveYou') {
         return { sign: 'I_LOVE_YOU', spoken: 'I love you', label: 'I Love You', score: canned.score };
       }
       if (gName === 'Victory') {
-        return { sign: 'PEACE', spoken: 'Peace', label: 'Peace', score: canned.score };
+        return { sign: 'PEACE', spoken: 'Peace', label: 'Peace / V', score: canned.score };
       }
       if (gName === 'Pointing_Up' && !middleExt && !ringExt && !pinkyExt) {
-        return { sign: 'POINTING_UP', spoken: 'One', label: 'One / Pointing', score: canned.score };
+        return { sign: 'ONE', spoken: 'One', label: 'One / Pointing', score: canned.score };
       }
-      if (gName === 'Open_Palm' && indexExt && middleExt && ringExt && pinkyExt && thumbExt) {
+      if (gName === 'Open_Palm' && indexExt && middleExt && ringExt && pinkyExt) {
         return { sign: 'HELLO', spoken: 'Hello', label: 'Hello', score: canned.score };
       }
       if (gName === 'Closed_Fist' && !indexExt && !middleExt && !ringExt && !pinkyExt) {
-        return { sign: 'SOLIDARITY', spoken: 'Solidarity', label: 'Fist', score: canned.score };
+        // Can be Letter A or Solidarity
+        return { sign: 'LETTER_A', spoken: 'A', label: 'Letter A', score: canned.score };
       }
     }
 
-    // 2. Custom Geometric ASL Sign Rules
+    // 2. Custom Geometric ASL Sign & Alphabet Rules
 
-    // "OK" Sign (Thumb and Index tips touching in a ring, other 3 extended)
+    // "OK" / Letter F (Thumb and Index tips touching in a ring, other 3 extended)
     if (thumbIndexDist < 0.055 && middleExt && ringExt && pinkyExt) {
-      return { sign: 'OK', spoken: 'OK', label: 'OK', score: 0.92 };
+      return { sign: 'OK', spoken: 'OK', label: 'OK / Letter F', score: 0.92 };
     }
 
-    // "Call Me" / "Shaka" / "Y" (Thumb and Pinky extended, middle 3 curled)
-    if (thumbExt && pinkyExt && !indexExt && !middleExt && !ringExt) {
-      return { sign: 'CALL_ME', spoken: 'Call me', label: 'Call Me / Y', score: 0.90 };
+    // Letter D (Index pointing straight up, thumb touching middle fingertip, ring and pinky curled)
+    if (indexExt && !middleExt && !ringExt && !pinkyExt && dist(lm[4], lm[12]) < 0.075) {
+      return { sign: 'LETTER_D', spoken: 'D', label: 'Letter D', score: 0.89 };
     }
 
-    // "L" Sign (Thumb and Index extended at right angle, others curled)
+    // Letter R (Index and Middle extended and crossed)
+    if (indexExt && middleExt && !ringExt && !pinkyExt && (indexMiddleDist < 0.035 || Math.abs(lm[8].x - lm[12].x) < 0.02)) {
+      return { sign: 'LETTER_R', spoken: 'R', label: 'Letter R', score: 0.88 };
+    }
+
+    // Letter L (Thumb and Index extended at 90 degree angle, others curled)
     if (thumbExt && indexExt && !middleExt && !ringExt && !pinkyExt) {
-      return { sign: 'LETTER_L', spoken: 'Letter L', label: 'Letter L', score: 0.88 };
+      return { sign: 'LETTER_L', spoken: 'L', label: 'Letter L', score: 0.88 };
     }
 
-    // "I" Sign / Pinky Only (Pinky extended, all other 4 curled)
+    // Letter Y / "Call Me" (Thumb and Pinky extended, middle 3 curled)
+    if (thumbExt && pinkyExt && !indexExt && !middleExt && !ringExt) {
+      return { sign: 'LETTER_Y', spoken: 'Y', label: 'Letter Y (Call Me)', score: 0.90 };
+    }
+
+    // Letter I (Pinky extended, all other 4 curled)
     if (pinkyExt && !indexExt && !middleExt && !ringExt && !thumbExt) {
-      return { sign: 'LETTER_I', spoken: 'Letter I', label: 'Letter I', score: 0.87 };
+      return { sign: 'LETTER_I', spoken: 'I', label: 'Letter I', score: 0.87 };
     }
 
-    // "W" Sign / "3" (Index, Middle, Ring extended, Pinky curled)
-    if (indexExt && middleExt && ringExt && !pinkyExt) {
-      return { sign: 'LETTER_W', spoken: 'Letter W', label: 'Letter W / 3', score: 0.86 };
+    // Letter W / "Three" (Index, Middle, Ring extended, Pinky curled)
+    if (indexExt && middleExt && ringExt && !pinkyExt && indexMiddleDist > 0.04) {
+      return { sign: 'LETTER_W', spoken: 'W', label: 'Letter W', score: 0.86 };
     }
 
-    // "U" Sign (Index and Middle extended and touching closely)
+    // Letter U (Index and Middle extended and touching closely together)
     if (indexExt && middleExt && !ringExt && !pinkyExt && indexMiddleDist < 0.045) {
-      return { sign: 'LETTER_U', spoken: 'Letter U', label: 'Letter U', score: 0.85 };
+      return { sign: 'LETTER_U', spoken: 'U', label: 'Letter U', score: 0.86 };
     }
 
-    // "B" Sign (Four fingers extended straight together, thumb tucked)
+    // Letter B (Four fingers extended straight together, thumb folded over palm)
     if (indexExt && middleExt && ringExt && pinkyExt && !thumbExt && middleRingDist < 0.05) {
-      return { sign: 'LETTER_B', spoken: 'Letter B', label: 'Letter B', score: 0.85 };
+      return { sign: 'LETTER_B', spoken: 'B', label: 'Letter B', score: 0.86 };
     }
 
-    // "C" Sign (Fingers curved into a cup shape)
+    // Letter O (All 4 fingertips curved down meeting thumb tip in a circle)
+    if (!indexExt && !middleExt && !ringExt && !pinkyExt && thumbIndexDist < 0.06 && dist(lm[4], lm[12]) < 0.075) {
+      return { sign: 'LETTER_O', spoken: 'O', label: 'Letter O', score: 0.84 };
+    }
+
+    // Letter C (Fingers curved into a cup shape)
     const isCurved = !indexExt && dist(lm[8], wrist) > dist(lm[6], wrist) * 0.95 && thumbIndexDist > 0.08 && thumbIndexDist < 0.18;
     if (isCurved && !pinkyExt) {
-      return { sign: 'LETTER_C', spoken: 'Letter C', label: 'Letter C', score: 0.80 };
+      return { sign: 'LETTER_C', spoken: 'C', label: 'Letter C', score: 0.82 };
+    }
+
+    // Letter X (Index bent into a hook, other fingers curled)
+    if (!indexExt && !middleExt && !ringExt && !pinkyExt && dist(lm[8], wrist) > dist(lm[5], wrist) * 1.05 && dist(lm[8], lm[5]) < dist(lm[6], lm[5]) * 1.3) {
+      return { sign: 'LETTER_X', spoken: 'X', label: 'Letter X', score: 0.80 };
+    }
+
+    // Letter S (Fist with thumb wrapped across front of fingers)
+    if (!indexExt && !middleExt && !ringExt && !pinkyExt && dist(lm[4], lm[10]) < 0.06) {
+      return { sign: 'LETTER_S', spoken: 'S', label: 'Letter S', score: 0.82 };
+    }
+
+    // "Stop" (Flat open palm held high facing camera)
+    if (indexExt && middleExt && ringExt && pinkyExt && thumbExt && lm[8].y < lm[0].y - 0.25) {
+      return { sign: 'STOP', spoken: 'Stop', label: 'Stop', score: 0.85 };
     }
 
     return null;
