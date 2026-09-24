@@ -36,6 +36,8 @@ export class WebRTCManager {
     this.reconnectDelay = 1000;
     this.shouldReconnect = true;
     this.heartbeatInterval = null;
+    this.messageQueue = Promise.resolve();
+    this.pendingCandidates = new Map();
 
     // Standard public STUN configuration
     this.iceConfig = {
@@ -67,8 +69,14 @@ export class WebRTCManager {
         this.setupLocalAudioMeter();
         return this.localStream;
       } catch (err2) {
-        console.warn('Audio-only fallback also failed, using dummy media track');
-        this.localStream = this.createDummyStream();
+        try {
+          this.localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          this.onError('Microphone unavailable. You can still use camera gestures.');
+          return this.localStream;
+        } catch (_) {
+          this.onError('Camera and microphone unavailable. Check browser permissions to enable them.');
+        }
+        this.localStream = new MediaStream();
         return this.localStream;
       }
     }
@@ -155,7 +163,6 @@ export class WebRTCManager {
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000;
-      this.onSignalingStateChange('connected');
       this.sendSignalingMessage({
         type: 'join',
         roomId: this.roomId,
@@ -167,18 +174,16 @@ export class WebRTCManager {
       }, 30000);
     };
 
-    this.ws.onmessage = async (event) => {
-      try {
+    this.ws.onmessage = (event) => {
+      this.messageQueue = this.messageQueue.then(async () => {
         const msg = JSON.parse(event.data);
         await this.handleSignalingMessage(msg);
-      } catch (err) {
-        console.error('Signaling processing error:', err, event.data);
-      }
+      }).catch(err => console.error('Signaling processing error:', err));
     };
 
     this.ws.onclose = () => {
       clearInterval(this.heartbeatInterval);
-      this.onSignalingStateChange('disconnected');
+      this.onSignalingStateChange(this.shouldReconnect ? 'disconnected' : 'closed');
       if (this.shouldReconnect) {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = setTimeout(() => this.connectSignaling(), this.reconnectDelay);
@@ -201,6 +206,7 @@ export class WebRTCManager {
   async handleSignalingMessage(msg) {
     switch (msg.type) {
       case 'room-joined': {
+        this.onSignalingStateChange('connected');
         // We received the list of existing participants in the room
         console.log('Joined room. Existing peers:', msg.users);
         if (Array.isArray(msg.users)) {
@@ -231,6 +237,7 @@ export class WebRTCManager {
           pc = await this.initiatePeerConnection(msg.from, false);
         }
         await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        await this.flushCandidates(msg.from, pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -248,13 +255,18 @@ export class WebRTCManager {
         const pc = this.peerConnections.get(msg.from);
         if (pc) {
           await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          await this.flushCandidates(msg.from, pc);
         }
         break;
       }
 
       case 'ice-candidate': {
         const pc = this.peerConnections.get(msg.from);
-        if (pc && msg.candidate) {
+        if (msg.candidate && (!pc || !pc.remoteDescription)) {
+          const pending = this.pendingCandidates.get(msg.from) || [];
+          if (pending.length < 100) pending.push(msg.candidate);
+          this.pendingCandidates.set(msg.from, pending);
+        } else if (pc && msg.candidate) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
           } catch (e) {
@@ -284,8 +296,9 @@ export class WebRTCManager {
       }
 
       case 'error': {
-        if (['UNAUTHENTICATED', 'NOT_ADMITTED', 'DUPLICATE_SESSION'].includes(msg.code)) {
+        if (['UNAUTHENTICATED', 'NOT_ADMITTED', 'DUPLICATE_SESSION', 'ROOM_NOT_FOUND', 'ROOM_FULL'].includes(msg.code)) {
           this.shouldReconnect = false;
+          this.ws?.close();
         }
         this.onError(msg.message || 'Room error');
         break;
@@ -359,12 +372,19 @@ export class WebRTCManager {
   }
 
   closePeer(peerId) {
+    this.pendingCandidates.delete(peerId);
     const pc = this.peerConnections.get(peerId);
     if (pc) {
       pc.close();
       this.peerConnections.delete(peerId);
     }
     this.peerData.delete(peerId);
+  }
+
+  async flushCandidates(peerId, pc) {
+    const pending = this.pendingCandidates.get(peerId) || [];
+    this.pendingCandidates.delete(peerId);
+    for (const candidate of pending) await pc.addIceCandidate(new RTCIceCandidate(candidate));
   }
 
   /**

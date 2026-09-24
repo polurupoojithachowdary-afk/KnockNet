@@ -85,13 +85,16 @@ public class TranslateController {
                     "targetLanguage", result.targetLanguage()
             ));
 
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
         } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             String userName = principal != null ? principal.getName() : "anonymous";
             log.error("Translation failed for user {}: {}", userName, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
                     "success", false,
                     "error", "TRANSLATION_FAILED",
-                    "message", "Could not translate the audio. Try again in a moment."
+                    "message", "The speech translation service could not process this recording. Please retry."
             ));
         }
     }
@@ -112,7 +115,7 @@ public class TranslateController {
             ));
         }
 
-        String text = payload.getOrDefault("text", "").trim();
+        String text = payload.get("text") == null ? "" : payload.get("text").trim();
         String sourceLang = payload.getOrDefault("sourceLang", "te");
         String targetLang = payload.getOrDefault("targetLang", "en");
 
@@ -132,10 +135,13 @@ public class TranslateController {
                     "translated", translated,
                     "targetLanguage", targetLang
             ));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
         } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             String userName = principal != null ? principal.getName() : "anonymous";
             log.error("Text translation failed for user {}: {}", userName, e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
                     "success", false,
                     "error", "TRANSLATION_FAILED",
                     "message", "Could not translate text. Try again in a moment."

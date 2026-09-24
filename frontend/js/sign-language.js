@@ -4,7 +4,8 @@ import { FilesetResolver, GestureRecognizer } from '@mediapipe/tasks-vision';
  * KnockNet Real-Time Sign Language Recognition & Translation Module
  *
  * Runs 100% locally in the browser using MediaPipe Tasks Vision (WebAssembly + WebGL GPU).
- * Recognizes ASL gestures, fingerspelling alphabet, and conversational phrases.
+ * Experimental gesture shortcuts and a limited set of static letter heuristics.
+ * This is not a trained ASL/ISL sentence translation model.
  * Synthesizes voice via the Web Speech Synthesis API and broadcasts real-time
  * subtitles to peers in the video call.
  *
@@ -20,6 +21,7 @@ export class SignLanguageManager {
     this.sendToPeer = options.sendToPeer || (() => {});
 
     this.recognizer = null;
+    this.initPromise = null;
     this.running = false;
     this.ttsEnabled = true;
     this.drawSkeleton = false; // Do not draw lines on screen
@@ -42,26 +44,23 @@ export class SignLanguageManager {
 
   /**
    * Initializes MediaPipe FilesetResolver and GestureRecognizer.
-   * Tries local WASM and model files first, falling back to CDN if needed.
+   * Uses a matched local WASM runtime and model, with GPU-to-CPU fallback.
    */
-  async init() {
+  init() {
+    if (this.recognizer) return Promise.resolve(true);
+    if (!this.initPromise) this.initPromise = this.initialize().finally(() => { this.initPromise = null; });
+    return this.initPromise;
+  }
+
+  async initialize() {
     this.onStatusChange({ status: 'loading', message: 'Loading AI Hand Tracker…' });
 
     try {
-      // 1. Resolve WASM assets (try local first, fallback to CDN)
-      let vision;
-      try {
-        vision = await FilesetResolver.forVisionTasks('/wasm');
-      } catch (e) {
-        console.warn('Local WASM failed, falling back to CDN:', e.message);
-        vision = await FilesetResolver.forVisionTasks(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-        );
-      }
+      // Build copies the WASM runtime from the exact installed JS package version.
+      const vision = await FilesetResolver.forVisionTasks('/wasm');
 
       // 2. Initialize GestureRecognizer (try GPU first, fallback to CPU)
       const modelPath = '/models/gesture_recognizer.task';
-      const cdnModelPath = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
 
       const createRecognizer = async (delegate, modelUrl) => {
         return await GestureRecognizer.createFromOptions(vision, {
@@ -70,7 +69,7 @@ export class SignLanguageManager {
             delegate: delegate
           },
           runningMode: 'VIDEO',
-          numHands: 2,
+          numHands: 1,
           minHandDetectionConfidence: 0.5,
           minHandPresenceConfidence: 0.5,
           minTrackingConfidence: 0.5
@@ -81,12 +80,7 @@ export class SignLanguageManager {
         this.recognizer = await createRecognizer('GPU', modelPath);
       } catch (errGpuLocal) {
         console.warn('GPU/local model init failed, trying CPU fallback…', errGpuLocal.message);
-        try {
-          this.recognizer = await createRecognizer('CPU', modelPath);
-        } catch (errCpuLocal) {
-          console.warn('Local model failed, trying CDN…', errCpuLocal.message);
-          this.recognizer = await createRecognizer('GPU', cdnModelPath);
-        }
+        this.recognizer = await createRecognizer('CPU', modelPath);
       }
 
       this.onStatusChange({ status: 'ready', message: 'Sign Language AI Ready' });
@@ -103,23 +97,32 @@ export class SignLanguageManager {
    * Starts tracking and recognition loop on the active video element.
    */
   start(videoElement, canvasElement) {
+    if (this.running) return true;
     if (videoElement) this.videoElement = videoElement;
     if (canvasElement) this.canvasElement = canvasElement;
 
     if (!this.recognizer) {
       this.onError('Recognizer not initialized. Call init() first.');
-      return;
+      return false;
     }
     if (!this.videoElement) {
       this.onError('Video element is required to start recognition.');
-      return;
+      return false;
     }
 
+    const camera = this.videoElement.srcObject?.getVideoTracks()[0];
+    if (!camera || camera.readyState !== 'live' || !camera.enabled) {
+      this.onError('Turn on your camera to recognize gestures.');
+      return false;
+    }
+    this.lastVideoTime = -1;
+    this.frameErrors = 0;
     this.running = true;
     this.detectionHistory = [];
     this.onStatusChange({ status: 'tracking', message: 'Tracking hand signs' });
 
     this._loop();
+    return true;
   }
 
   /**
@@ -160,8 +163,13 @@ export class SignLanguageManager {
         try {
           const results = this.recognizer.recognizeForVideo(video, nowInMs);
           this.processResults(results);
+          this.frameErrors = 0;
         } catch (e) {
-          // Frame dropped or busy
+          if (++this.frameErrors >= 5) {
+            this.stop();
+            this.onError('Hand tracking stopped. Reopen the panel to retry.');
+            return;
+          }
         }
       }
     }
@@ -180,6 +188,7 @@ export class SignLanguageManager {
       if (this.detectionHistory.length > this.historyLength) {
         this.detectionHistory.shift();
       }
+      if (this.detectionHistory.every(item => item === null)) this.currentConfirmedSign = null;
       return;
     }
 
@@ -197,7 +206,7 @@ export class SignLanguageManager {
       }
     }
 
-    if (this.detectionHistory.length > this.historyLength) {
+    while (this.detectionHistory.length > this.historyLength) {
       this.detectionHistory.shift();
     }
 
@@ -210,6 +219,12 @@ export class SignLanguageManager {
    * Completely emoji-free.
    */
   classifySign(lm, canned) {
+    if (!lm || lm.length !== 21) return null;
+    // Scale geometric thresholds by palm size so distance from camera is less significant.
+    const palmSize = Math.hypot(lm[9].x - lm[0].x, lm[9].y - lm[0].y);
+    if (palmSize < 0.015) return null;
+    const scale = 0.12 / palmSize;
+    lm = lm.map(p => ({ x: p.x * scale, y: p.y * scale, z: (p.z || 0) * scale }));
     // 1. Calculate finger curl and extension states
     const wrist = lm[0];
     const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y, (p1.z || 0) - (p2.z || 0));
@@ -229,8 +244,9 @@ export class SignLanguageManager {
     const thumbPinkyDist = dist(lm[4], lm[20]);
     const middleRingDist = dist(lm[12], lm[16]);
 
-    // Check MediaPipe pre-trained gesture with high confidence (>0.70)
-    if (canned && canned.score > 0.70) {
+    // Tracking scores fluctuate below the first detection's score. Require a
+    // stable 4-of-6-frame vote instead of discarding otherwise consistent poses.
+    if (canned && canned.score >= 0.60) {
       const gName = canned.categoryName;
       if (gName === 'Thumb_Up') {
         return { sign: 'YES', spoken: 'Yes', label: 'Yes (Thumbs Up)', score: canned.score };
@@ -368,9 +384,7 @@ export class SignLanguageManager {
   onConfirmedSign(signObj) {
     const now = Date.now();
     const isDifferent = this.currentConfirmedSign !== signObj.sign;
-    const isCooldownElapsed = (now - this.lastSpokenTime) > this.speakCooldown;
-
-    if (isDifferent || isCooldownElapsed) {
+    if (isDifferent) {
       this.currentConfirmedSign = signObj.sign;
       this.lastSpokenSign = signObj.sign;
       this.lastSpokenTime = now;

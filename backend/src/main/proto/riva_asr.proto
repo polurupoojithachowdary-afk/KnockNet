@@ -1,0 +1,33 @@
+// Minimal wire-compatible subset of NVIDIA Riva's Recognize API.
+// Source: https://github.com/nvidia-riva/common/blob/main/riva/proto/riva_asr.proto
+// SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES.
+// SPDX-License-Identifier: MIT
+// Unused fields are intentionally omitted; retain upstream field numbers.
+syntax = "proto3";
+package nvidia.riva.asr;
+option java_package = "com.example.wedrtc.translate.riva";
+option java_multiple_files = true;
+
+service RivaSpeechRecognition {
+  rpc Recognize(RecognizeRequest) returns (RecognizeResponse) {}
+}
+message RecognizeRequest {
+  RecognitionConfig config = 1;
+  bytes audio = 2;
+}
+message RecognitionConfig {
+  // NVIDIA riva_audio.proto: LINEAR_PCM = 1 (signed 16-bit little endian).
+  int32 encoding = 1;
+  int32 sample_rate_hertz = 2;
+  string language_code = 3;
+  int32 max_alternatives = 4;
+  int32 audio_channel_count = 7;
+  bool enable_automatic_punctuation = 11;
+  map<string, string> custom_configuration = 24;
+}
+message RecognizeResponse { repeated SpeechRecognitionResult results = 1; }
+message SpeechRecognitionResult { repeated SpeechRecognitionAlternative alternatives = 1; }
+message SpeechRecognitionAlternative {
+  string transcript = 1;
+  float confidence = 2;
+}

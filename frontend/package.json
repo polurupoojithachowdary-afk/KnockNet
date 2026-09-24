@@ -4,15 +4,19 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/sync-vision-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/sync-vision-assets.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "playwright test"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1",
+    "@mediapipe/tasks-vision": "1.0.1",
     "firebase": "^12.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "vite": "^7.0.0"
   },
   "engines": {

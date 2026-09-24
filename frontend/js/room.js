@@ -16,24 +16,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRoomDemo = document.getElementById('btn-room-demo');
   if (btnRoomDemo) {
     btnRoomDemo.addEventListener('click', () => {
-      sessionStorage.setItem('knocknet_demo', 'true');
-      sessionStorage.setItem('knocknet_roomId', 'demo-room-888');
       window.location.href = '/room.html?demo=true';
     });
   }
 
-  const isDemo = new URLSearchParams(window.location.search).get('demo') === 'true' ||
-                 sessionStorage.getItem('knocknet_demo') === 'true';
+  const isDemo = new URLSearchParams(window.location.search).get('demo') === 'true';
+  sessionStorage.removeItem('knocknet_demo');
 
   let user = null;
   if (isDemo) {
     user = {
       uid: 'demo-user-1',
-      displayName: 'Preetham',
-      email: 'preetham@knocknet.local',
-      getIdToken: async () => 'mock-jwt-token'
+      displayName: 'Local preview'
     };
-    sessionStorage.setItem('knocknet_roomId', 'demo-room-888');
     authGate.classList.remove('active');
   } else {
     await authReady;
@@ -57,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const inviteCode = new URLSearchParams(window.location.hash.slice(1)).get('invite');
-  if (inviteCode) {
+  if (inviteCode && !isDemo) {
     authGate.classList.add('active');
     authGateMessage.textContent = 'Validating the invitation…';
     authGateButton.hidden = true;
@@ -79,7 +74,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     authGate.classList.remove('active');
   }
 
-  const roomId = sessionStorage.getItem('knocknet_roomId');
+  const roomId = isDemo ? 'local-preview' : sessionStorage.getItem('knocknet_roomId');
   if (!roomId) {
     window.location.href = '/';
     return;
@@ -180,7 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     modalCodeDisplay.textContent = activeCode;
     modalLinkInput.value = `${window.location.origin}/room.html?demo=true`;
     localRole.textContent = 'Host';
-    btnRefreshCode.hidden = false;
+    btnRefreshCode.hidden = true;
   } else {
     try {
       const res = await authenticatedFetch(`/api/rooms/${roomId}`);
@@ -217,7 +212,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const rtc = new WebRTCManager({
     roomId: roomId,
     displayName: displayName,
-    tokenProvider: () => user.getIdToken(),
+    tokenProvider: isDemo ? null : () => user.getIdToken(),
     onRemoteStream: handleRemoteStream,
     onPeerLeft: handlePeerLeft,
     onPeerStateChange: handlePeerStateChange,
@@ -236,8 +231,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const stream = await rtc.initLocalMedia();
   localVideo.srcObject = stream;
 
-  // Connect to Signaling Server
-  rtc.connectSignaling();
+  // Keep hand tracking on the camera even while the local preview shares a screen.
+  const signVideo = document.createElement('video');
+  signVideo.muted = true;
+  signVideo.playsInline = true;
+  signVideo.srcObject = stream;
+  if (stream.getVideoTracks().length) signVideo.play().catch(() => {});
+  tileLocal.classList.toggle('video-off', !stream.getVideoTracks().length);
+  tileLocal.classList.toggle('audio-muted', !stream.getAudioTracks().length);
 
   // 4. Remote Stream Arrival
   function handleRemoteStream(peerId, remoteStream, peerDisplayName) {
@@ -502,7 +503,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Initialize: fetch languages and set defaults (Telugu -> English)
-  translator.init().then(() => {
+  let translationInit = null;
+  function initializeTranslation() {
+    if (isDemo) return Promise.resolve();
+    if (translationInit) return translationInit;
+    translationInit = translator.init().then(() => {
     if (translator.languages.length > 0) {
       // Populate source language dropdown (default: Telugu)
       selectSourceLang.innerHTML = '';
@@ -527,15 +532,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       translator.setSourceLanguage(selectSourceLang.value || 'te');
       translator.setTargetLanguage(selectTargetLang.value || 'en');
     }
-  });
+    });
+    return translationInit;
+  }
 
   // Toggle translate panel
-  btnToggleTranslate.addEventListener('click', () => {
+  btnToggleTranslate.addEventListener('click', async () => {
     const willShow = translatePanel.hidden;
     translatePanel.hidden = !willShow;
     btnToggleTranslate.classList.toggle('active', willShow);
-    if (willShow && !translator.configured) {
-      showToast('Voice translation requires NVIDIA_API_KEY on the server');
+    if (willShow) {
+      btnPushToTalk.disabled = true;
+      pushToTalkLabel.textContent = 'Checking availability...';
+      await initializeTranslation();
+      btnPushToTalk.disabled = !translator.configured;
+      pushToTalkLabel.textContent = translator.configured ? 'Hold to translate' :
+        (isDemo ? 'Join a meeting to translate voice' : 'Translation unavailable - reopen to retry');
+      if (!translator.configured) translationInit = null;
     }
   });
 
@@ -602,6 +615,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const senderName = msg.sender || rtc.peerData.get(msg.from)?.displayName || 'Participant';
       subtitleOriginal.textContent = `Voice Translation (${senderName})`;
       subtitleTranslated.textContent = msg.translated || '';
+      translator.speak(msg.translated, msg.targetLanguage);
       subtitleOverlay.hidden = false;
       clearTimeout(subtitleTimeout);
       subtitleTimeout = setTimeout(() => {
@@ -625,7 +639,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const checkSignTts = document.getElementById('check-sign-tts');
 
   const signManager = new SignLanguageManager({
-    videoElement: localVideo,
+    videoElement: signVideo,
     canvasElement: signCanvas,
     onSignDetected: (signObj) => {
       if (signLiveBadge) signLiveBadge.textContent = 'DETECTED';
@@ -661,9 +675,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Pre-initialize AI model in background
-  signManager.init().catch(e => console.warn('Sign Language init warning:', e));
-
   // Toggle button
   btnToggleSign.addEventListener('click', async () => {
     const willShow = signPanel.hidden;
@@ -679,10 +690,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (willShow) {
       if (!signManager.recognizer) {
         showToast('Initializing hand tracking AI…');
-        await signManager.init();
+        if (!await signManager.init()) return;
       }
-      signManager.start(localVideo, signCanvas);
-      showToast('Sign language active. Show hand to camera!');
+      if (signPanel.hidden) return;
+      if (signManager.start(signVideo, signCanvas)) showToast('Gesture recognition active. Show one hand to the camera.');
     } else {
       signManager.stop();
     }
@@ -721,5 +732,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return div.innerHTML;
   }
 
+  // Start only after all subtitle callbacks and managers have been initialized.
+  if (!isDemo) rtc.connectSignaling();
+  document.body.dataset.roomReady = 'true';
   updateGridLayout();
 });

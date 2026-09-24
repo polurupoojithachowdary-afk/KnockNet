@@ -45,7 +45,7 @@ async function waitForBackend() {
 
 export async function authenticatedFetch(path, options = {}) {
   await waitForBackend();
-  const user = await requireAuthenticatedUser();
+  const user = await requireAuthenticatedUser({ interactive: false });
   const token = await user.getIdToken();
   const headers = new Headers(options.headers || {});
   headers.set('Authorization', `Bearer ${token}`);

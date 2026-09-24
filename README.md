@@ -79,6 +79,20 @@ Recommended next security milestones:
 
 ## Current operational limits
 
+### Voice translation and gesture assistance
+
+Set `NVIDIA_API_KEY` on **Render**, where the Spring service runs. A Vercel variable does not configure Render. No NVIDIA credential belongs in a `VITE_*` variable or browser code. Rotate any previously committed key in NVIDIA's console and update Render.
+
+Voice translation is push-to-talk: the browser records up to 28 seconds, converts the recording to mono 16-bit/16 kHz WAV, and sends it to the authenticated backend. The backend calls NVIDIA-hosted OpenAI Whisper Large v3 through Riva gRPC, then Riva Translate 4B Instruct v2 for text translation. Non-English language pairs use an English pivot. Whisper's hosted API is documented at https://build.nvidia.com/openai/whisper-large-v3/api. Translation audio is processed by NVIDIA; translated captions pass through signaling. This optional feature is not service-blind media E2EE. Browser voice availability varies by language and OS.
+
+Gesture assistance runs locally with MediaPipe. Open the hand panel to load it. Build and development scripts copy the WASM files from the pinned MediaPipe package to keep JavaScript and native runtime compatible. It supports the listed gesture shortcuts and experimental static letter rules, **not full ASL/ISL sentence translation**. Hold one hand in view and lower it before repeating a gesture. Camera tracking continues independently of screen sharing.
+
+Demo mode is a local camera/gesture preview. It does not open a call WebSocket or invoke authenticated translation. Use Google sign-in and a real room for voice translation and peer captions.
+
+Regression checks: `npm --prefix frontend test` (install Chromium once with `npx playwright install chromium` from `frontend/`) and `backend/gradlew.bat -p backend test`. The optional live NVIDIA test requires `NVIDIA_API_KEY` and `NVIDIA_SMOKE_WAV` pointing to a mono 16 kHz WAV containing "hello"; ordinary tests make no provider calls.
+
+Development priorities: reliable TURN connectivity and reconnect behavior; bounded translation usage and latency monitoring; durable scheduled meetings; accessibility evaluation with sign-language users and a trained, language-specific temporal model; an SFU only when room sizes outgrow the current mesh.
+
 - Room and schedule state is in memory. A Render restart or free-tier spin-down clears it. Firestore or Redis is required before durable scheduling can be claimed.
 - Render Free can take around a minute to wake and can restart at any time. It is appropriate for a prototype, not a production SLA.
 - There is no TURN service yet, so calls can fail on restrictive networks. Do not embed permanent TURN credentials in the Vercel bundle.

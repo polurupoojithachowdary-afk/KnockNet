@@ -103,12 +103,13 @@
           <svg class="sign-header-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v7"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
           <div>
             <h3>Sign Language to Voice</h3>
-            <p class="sign-status-sub" id="sign-status-text">AI Ready</p>
+            <p class="sign-status-sub" id="sign-status-text">Experimental gesture recognition</p>
           </div>
         </div>
         <button type="button" class="btn-close-sign" id="btn-close-sign" aria-label="Close">×</button>
       </div>
       <div class="sign-panel-body">
+        <p>Recognizes the listed gesture shortcuts and some static letters. Full ASL/ISL conversation translation is not supported. Hold one hand in view, then lower it before repeating.</p>
         <!-- Live detected sign banner -->
         <div class="sign-live-card" id="sign-live-card">
           <div class="sign-live-badge" id="sign-live-badge">SIGN</div>
@@ -198,7 +199,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
           <span id="push-to-talk-label">Hold to translate</span>
         </button>
-        <p class="translate-hint">Hold the button, speak, then release. Your speech will be translated and spoken to the other person.</p>
+        <p class="translate-hint">Hold the button, speak, then release (up to 28 seconds). This sends your recording to NVIDIA for transcription and translation. Subtitles are shared with the meeting; voice playback depends on installed browser voices.</p>
       </div>
     </div>
   </div>

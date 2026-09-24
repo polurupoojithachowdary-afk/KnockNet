@@ -11,3 +11,5 @@ services:
         sync: false
       - key: FIREBASE_PROJECT_ID
         sync: false
+      - key: NVIDIA_API_KEY
+        sync: false

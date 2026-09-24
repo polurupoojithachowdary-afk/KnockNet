@@ -45,3 +45,7 @@ dist/
 !.env.example
 
 .vercel
+.tmp/
+test-results/
+playwright-report/
+firebase-debug.log

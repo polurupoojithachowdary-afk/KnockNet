@@ -1,282 +1,145 @@
 package com.example.wedrtc.translate;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.example.wedrtc.translate.riva.*;
+import com.google.protobuf.ByteString;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.Metadata;
+import io.grpc.StatusRuntimeException;
+import io.grpc.stub.MetadataUtils;
+import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.AudioFormat;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.Base64;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-/**
- * Proxies audio through NVIDIA NIM free-tier endpoints:
- * Step 1 — Canary ASR (speech-to-text with optional translation)
- * Step 2 — If Canary doesn't support the target language pair, fall back to
- *           separate ASR + NMT calls.
- *
- * Uses batch/offline mode (one complete utterance per request) to stay within
- * the ~40 RPM free-tier rate limit.
- */
+/** NVIDIA-hosted Whisper gRPC ASR followed by Riva text translation. */
 @Service
 public class NvidiaTranslationService {
-
-    private static final Logger log = LoggerFactory.getLogger(NvidiaTranslationService.class);
-
-    private static final String NVIDIA_ASR_URL =
-            "https://integrate.api.nvidia.com/v1/audio/transcriptions";
-
-    private static final String NVIDIA_NMT_URL =
-            "https://integrate.api.nvidia.com/v1/chat/completions";
-
+    static final Set<String> LANGUAGES = Set.of("en", "es", "fr", "de", "hi", "te", "ta", "bn",
+            "mr", "gu", "kn", "ml", "pa", "ur", "ja", "ko", "zh", "ar", "ru", "pt", "it",
+            "tr", "vi", "th", "id", "ms", "nl", "pl", "sv", "da", "fi", "no", "uk", "he", "ro", "cs");
     private final String apiKey;
-    private final HttpClient httpClient;
+    private final ManagedChannel channel;
+    private final String functionId;
+    private final URI translateUri;
+    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private final ObjectMapper json = new ObjectMapper();
 
-    public NvidiaTranslationService(
-            @Value("${app.nvidia.api-key:}") String apiKey) {
+    @Autowired
+    public NvidiaTranslationService(@Value("${app.nvidia.api-key:}") String apiKey,
+            @Value("${app.nvidia.whisper-function-id:b702f636-f60c-4a3d-a6f4-f3568c13bd7d}") String functionId) {
+        this(apiKey, functionId, ManagedChannelBuilder.forAddress("grpc.nvcf.nvidia.com", 443)
+                .useTransportSecurity().build(), URI.create("https://integrate.api.nvidia.com/v1/chat/completions"));
+    }
+
+    NvidiaTranslationService(String apiKey, String functionId, ManagedChannel channel, URI translateUri) {
         this.apiKey = apiKey;
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
+        this.functionId = functionId;
+        this.channel = channel;
+        this.translateUri = translateUri;
     }
 
-    public boolean isConfigured() {
-        return apiKey != null && !apiKey.isBlank();
+    public boolean isConfigured() { return apiKey != null && !apiKey.isBlank(); }
+
+    public static String language(String code) {
+        String normalized = code == null ? "" : code.toLowerCase(Locale.ROOT).split("[-_]")[0];
+        if (!LANGUAGES.contains(normalized)) throw new IllegalArgumentException("Unsupported language");
+        return normalized;
     }
 
-    /**
-     * Transcribe audio to text using NVIDIA Canary ASR endpoint.
-     * Accepts raw audio bytes (WAV/WebM) and returns the transcribed text.
-     */
-    public String transcribeAudio(byte[] audioData, String sourceLanguage) throws IOException, InterruptedException {
-        if (!isConfigured()) {
-            throw new IllegalStateException("NVIDIA API key is not configured");
+    public String transcribeAudio(byte[] wav, String sourceLanguage) throws IOException {
+        requireConfigured();
+        String source = language(sourceLanguage);
+        byte[] pcm;
+        try (var audio = AudioSystem.getAudioInputStream(new ByteArrayInputStream(wav))) {
+            var format = audio.getFormat();
+            if (format.getChannels() != 1 || format.getSampleSizeInBits() != 16
+                    || format.getSampleRate() != 16000 || format.isBigEndian()
+                    || !AudioFormat.Encoding.PCM_SIGNED.equals(format.getEncoding())) {
+                throw new IllegalArgumentException("Audio must be mono 16-bit PCM WAV at 16 kHz");
+            }
+            pcm = audio.readAllBytes();
+            if (pcm.length < 3200 || pcm.length > 16000 * 2 * 30) {
+                throw new IllegalArgumentException("Record between 0.1 and 30 seconds of audio");
+            }
+        } catch (javax.sound.sampled.UnsupportedAudioFileException e) {
+            throw new IllegalArgumentException("Audio must be a WAV recording", e);
         }
-
-        String base64Audio = Base64.getEncoder().encodeToString(audioData);
-
-        // Map BCP-47 codes to Canary-compatible language codes
-        String langCode = mapToCanaryLanguage(sourceLanguage);
-
-        // Build multipart-like JSON request for the ASR endpoint
-        String requestBody = """
-                {
-                  "model": "openai/whisper-large-v3",
-                  "language": "%s",
-                  "response_format": "json",
-                  "file": "data:audio/wav;base64,%s"
-                }
-                """.formatted(langCode, base64Audio);
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(NVIDIA_ASR_URL))
-                .timeout(Duration.ofSeconds(30))
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() != 200) {
-            log.warn("NVIDIA ASR returned {}: {}", response.statusCode(), response.body());
-            throw new IOException("NVIDIA ASR request failed with status " + response.statusCode());
+        Metadata headers = new Metadata();
+        headers.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + apiKey);
+        headers.put(Metadata.Key.of("function-id", Metadata.ASCII_STRING_MARSHALLER), functionId);
+        var request = RecognizeRequest.newBuilder()
+                .setConfig(RecognitionConfig.newBuilder().setEncoding(1).setSampleRateHertz(16000)
+                        .setAudioChannelCount(1).setLanguageCode(source).setMaxAlternatives(1)
+                        .setEnableAutomaticPunctuation(true).putCustomConfiguration("task", "transcribe"))
+                .setAudio(ByteString.copyFrom(pcm)).build();
+        try {
+            var response = RivaSpeechRecognitionGrpc.newBlockingStub(channel)
+                    .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(headers))
+                    .withDeadlineAfter(45, TimeUnit.SECONDS).recognize(request);
+            return response.getResultsList().stream().filter(r -> r.getAlternativesCount() > 0)
+                    .map(r -> r.getAlternatives(0).getTranscript()).collect(Collectors.joining(" ")).trim();
+        } catch (StatusRuntimeException e) {
+            throw new IOException("NVIDIA Whisper failed: " + e.getStatus().getCode(), e);
         }
-
-        return extractTextField(response.body());
     }
 
-    /**
-     * Translate text using NVIDIA NMT via the chat completions endpoint.
-     * Uses NVIDIA Riva Translate 4B Instruct v2.
-     */
-    public String translateText(String text, String sourceLanguage, String targetLanguage) throws IOException, InterruptedException {
-        if (!isConfigured()) {
-            throw new IllegalStateException("NVIDIA API key is not configured");
-        }
-
-        String srcCode = sourceLanguage != null ? sourceLanguage.toLowerCase().split("[-_]")[0] : "en";
-        String tgtCode = targetLanguage != null ? targetLanguage.toLowerCase().split("[-_]")[0] : "en";
-        String pairTag = srcCode + "-" + tgtCode;
-
-        // Use NVIDIA Riva Translate 4B Instruct v2 with language pair system tag
-        String requestBody = """
-                {
-                  "model": "nvidia/riva-translate-4b-instruct-v2",
-                  "messages": [
-                    {
-                      "role": "system",
-                      "content": "%s"
-                    },
-                    {
-                      "role": "user",
-                      "content": "%s"
-                    }
-                  ],
-                  "temperature": 0.1,
-                  "max_tokens": 512
-                }
-                """.formatted(pairTag, escapeJson(text));
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(NVIDIA_NMT_URL))
-                .timeout(Duration.ofSeconds(30))
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() != 200) {
-            log.warn("NVIDIA NMT returned {}: {}", response.statusCode(), response.body());
-            throw new IOException("NVIDIA translation request failed with status " + response.statusCode());
-        }
-
-        return extractChatContent(response.body());
-    }
-
-    /**
-     * Combined pipeline: audio → text → translated text.
-     */
-    public TranslationResult translateAudio(byte[] audioData, String sourceLanguage, String targetLanguage)
+    public String translateText(String text, String sourceLanguage, String targetLanguage)
             throws IOException, InterruptedException {
-
-        // Step 1: ASR — speech to text
-        String originalText = transcribeAudio(audioData, sourceLanguage);
-
-        if (originalText == null || originalText.isBlank()) {
-            return new TranslationResult("", "", targetLanguage);
-        }
-
-        // Step 2: NMT — translate text
-        String translatedText = translateText(originalText, sourceLanguage, targetLanguage);
-
-        return new TranslationResult(originalText, translatedText, targetLanguage);
+        requireConfigured();
+        String source = language(sourceLanguage), target = language(targetLanguage);
+        if (text == null || text.isBlank() || text.length() > 4000)
+            throw new IllegalArgumentException("Text must contain 1 to 4000 characters");
+        if (source.equals(target)) return text.trim();
+        // This model supports English <-> 36 languages. Pivot other pairs through English.
+        if (!source.equals("en") && !target.equals("en"))
+            return translateText(translateText(text, source, "en"), "en", target);
+        String body = json.writeValueAsString(Map.of("model", "nvidia/riva-translate-4b-instruct-v2",
+                "messages", List.of(Map.of("role", "system", "content", source + "-" + target),
+                        Map.of("role", "user", "content", text)), "temperature", 0, "max_tokens", 1024));
+        var request = HttpRequest.newBuilder(translateUri).timeout(Duration.ofSeconds(45))
+                .header("Authorization", "Bearer " + apiKey).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+        var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200)
+            throw new IOException("NVIDIA translation failed: HTTP " + response.statusCode());
+        var choice = json.readTree(response.body()).path("choices").path(0);
+        String translated = choice.path("message").path("content").asText("").trim();
+        if (translated.isBlank() || "length".equals(choice.path("finish_reason").asText()))
+            throw new IOException("NVIDIA returned an empty or incomplete translation");
+        return translated;
     }
 
-    // --- Helpers ---
-
-    private String mapToCanaryLanguage(String bcp47) {
-        if (bcp47 == null) return "en";
-        String lower = bcp47.toLowerCase().replace("_", "-");
-        // Canary supports: en, es, fr, de, hi, ja, ko, pt, zh, and more
-        if (lower.startsWith("en")) return "en";
-        if (lower.startsWith("es")) return "es";
-        if (lower.startsWith("fr")) return "fr";
-        if (lower.startsWith("de")) return "de";
-        if (lower.startsWith("hi")) return "hi";
-        if (lower.startsWith("ja")) return "ja";
-        if (lower.startsWith("ko")) return "ko";
-        if (lower.startsWith("pt")) return "pt";
-        if (lower.startsWith("zh")) return "zh";
-        if (lower.startsWith("te")) return "te";
-        if (lower.startsWith("ta")) return "ta";
-        if (lower.startsWith("bn")) return "bn";
-        if (lower.startsWith("ar")) return "ar";
-        if (lower.startsWith("ru")) return "ru";
-        return "en";
+    public TranslationResult translateAudio(byte[] wav, String source, String target)
+            throws IOException, InterruptedException {
+        language(source);
+        target = language(target);
+        String original = transcribeAudio(wav, source);
+        return new TranslationResult(original, original.isBlank() ? "" : translateText(original, source, target), target);
     }
 
-    private static final Map<String, String> LANGUAGE_NAMES = Map.ofEntries(
-            Map.entry("en", "English"),
-            Map.entry("es", "Spanish"),
-            Map.entry("fr", "French"),
-            Map.entry("de", "German"),
-            Map.entry("hi", "Hindi"),
-            Map.entry("te", "Telugu"),
-            Map.entry("ta", "Tamil"),
-            Map.entry("bn", "Bengali"),
-            Map.entry("mr", "Marathi"),
-            Map.entry("gu", "Gujarati"),
-            Map.entry("kn", "Kannada"),
-            Map.entry("ml", "Malayalam"),
-            Map.entry("pa", "Punjabi"),
-            Map.entry("ur", "Urdu"),
-            Map.entry("ja", "Japanese"),
-            Map.entry("ko", "Korean"),
-            Map.entry("zh", "Chinese"),
-            Map.entry("ar", "Arabic"),
-            Map.entry("ru", "Russian"),
-            Map.entry("pt", "Portuguese"),
-            Map.entry("it", "Italian"),
-            Map.entry("tr", "Turkish"),
-            Map.entry("vi", "Vietnamese"),
-            Map.entry("th", "Thai"),
-            Map.entry("id", "Indonesian"),
-            Map.entry("ms", "Malay"),
-            Map.entry("nl", "Dutch"),
-            Map.entry("pl", "Polish"),
-            Map.entry("sv", "Swedish"),
-            Map.entry("da", "Danish"),
-            Map.entry("fi", "Finnish"),
-            Map.entry("no", "Norwegian"),
-            Map.entry("uk", "Ukrainian"),
-            Map.entry("he", "Hebrew"),
-            Map.entry("ro", "Romanian"),
-            Map.entry("cs", "Czech")
-    );
-
-    private String languageDisplayName(String code) {
-        if (code == null) return "English";
-        String prefix = code.toLowerCase().split("[-_]")[0];
-        return LANGUAGE_NAMES.getOrDefault(prefix, code);
+    private void requireConfigured() {
+        if (!isConfigured()) throw new IllegalStateException("NVIDIA API key is not configured");
     }
 
-    /**
-     * Extracts the "text" field from the ASR JSON response.
-     * Simple regex extraction to avoid adding a JSON library dependency.
-     */
-    private String extractTextField(String json) {
-        Pattern pattern = Pattern.compile("\"text\"\\s*:\\s*\"([^\"]*?)\"");
-        Matcher matcher = pattern.matcher(json);
-        if (matcher.find()) {
-            return unescapeJson(matcher.group(1));
-        }
-        log.warn("Could not extract 'text' from ASR response: {}", json);
-        return "";
-    }
-
-    /**
-     * Extracts the assistant message content from a chat completions response.
-     */
-    private String extractChatContent(String json) {
-        Pattern pattern = Pattern.compile("\"content\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
-        Matcher matcher = pattern.matcher(json);
-        if (matcher.find()) {
-            return unescapeJson(matcher.group(1));
-        }
-        log.warn("Could not extract 'content' from NMT response: {}", json);
-        return "";
-    }
-
-    private String escapeJson(String text) {
-        return text.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
-    private String unescapeJson(String text) {
-        return text.replace("\\\"", "\"")
-                .replace("\\n", "\n")
-                .replace("\\r", "\r")
-                .replace("\\t", "\t")
-                .replace("\\\\", "\\");
-    }
-
-    /**
-     * Immutable result of the translate-audio pipeline.
-     */
+    @PreDestroy
+    public void close() { channel.shutdownNow(); }
     public record TranslationResult(String original, String translated, String targetLanguage) {}
 }
