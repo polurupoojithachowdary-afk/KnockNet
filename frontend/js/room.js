@@ -1,6 +1,7 @@
 import { authenticatedFetch } from './api.js';
 import { auth, authReady, displayNameFor, signInWithGoogle } from './auth.js';
 import { WebRTCManager } from './webrtc.js';
+import { TranslateManager } from './translate.js';
 
 /**
  * Knocknet Conference Room Controller
@@ -396,13 +397,149 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 8. Leave Conference Call
   btnLeaveCall.addEventListener('click', () => {
     if (confirm('Leave this meeting?')) {
+      translator.destroy();
       rtc.leave();
       window.location.href = '/';
     }
   });
 
   window.addEventListener('beforeunload', () => {
+    translator.destroy();
     rtc.leave();
+  });
+
+  // 9. Voice Translation Setup
+  const btnToggleTranslate = document.getElementById('btn-toggle-translate');
+  const translatePanel = document.getElementById('translate-panel');
+  const btnCloseTranslate = document.getElementById('btn-close-translate');
+  const selectSourceLang = document.getElementById('select-source-lang');
+  const selectTargetLang = document.getElementById('select-target-lang');
+  const btnPushToTalk = document.getElementById('btn-push-to-talk');
+  const pushToTalkLabel = document.getElementById('push-to-talk-label');
+  const subtitleOverlay = document.getElementById('translate-subtitle');
+  const subtitleOriginal = document.getElementById('subtitle-original');
+  const subtitleTranslated = document.getElementById('subtitle-translated');
+
+  let subtitleTimeout = null;
+
+  const translator = new TranslateManager({
+    onSubtitle: ({ original, translated }) => {
+      subtitleOriginal.textContent = original || '';
+      subtitleTranslated.textContent = translated || '';
+      subtitleOverlay.hidden = false;
+      clearTimeout(subtitleTimeout);
+      subtitleTimeout = setTimeout(() => {
+        subtitleOverlay.hidden = true;
+      }, 8000);
+    },
+    onStateChange: (state) => {
+      if (state.recording !== undefined) {
+        btnPushToTalk.classList.toggle('recording', state.recording);
+        pushToTalkLabel.textContent = state.recording ? 'Listening…' : 'Hold to translate';
+      }
+      if (state.processing !== undefined) {
+        btnPushToTalk.classList.toggle('processing', state.processing);
+        if (state.processing) {
+          pushToTalkLabel.textContent = 'Translating…';
+          btnPushToTalk.disabled = true;
+        } else {
+          pushToTalkLabel.textContent = 'Hold to translate';
+          btnPushToTalk.disabled = false;
+        }
+      }
+    },
+    onError: (msg) => showToast(msg),
+    sendToPeer: (data) => {
+      // Send via signaling as a lightweight data message
+      // (DataChannel integration can be added later for lower latency)
+      rtc.sendSignalingMessage({
+        type: 'translation-subtitle',
+        roomId: roomId,
+        ...data
+      });
+    }
+  });
+
+  // Initialize: fetch languages from backend
+  translator.init().then(() => {
+    if (translator.languages.length > 0) {
+      // Populate source language dropdown
+      selectSourceLang.innerHTML = '';
+      translator.languages.forEach(lang => {
+        const opt = document.createElement('option');
+        opt.value = lang.code;
+        opt.textContent = lang.name;
+        if (lang.code === 'en') opt.selected = true;
+        selectSourceLang.appendChild(opt);
+      });
+
+      // Populate target language dropdown (exclude source)
+      selectTargetLang.innerHTML = '';
+      translator.languages.forEach(lang => {
+        const opt = document.createElement('option');
+        opt.value = lang.code;
+        opt.textContent = lang.name;
+        if (lang.code === 'hi') opt.selected = true;
+        selectTargetLang.appendChild(opt);
+      });
+    }
+
+    if (!translator.configured) {
+      btnToggleTranslate.title = 'Voice translation not configured on server';
+    }
+  });
+
+  // Toggle translate panel
+  btnToggleTranslate.addEventListener('click', () => {
+    const willShow = translatePanel.hidden;
+    translatePanel.hidden = !willShow;
+    btnToggleTranslate.classList.toggle('active', willShow);
+    if (willShow && !translator.configured) {
+      showToast('Voice translation requires NVIDIA_API_KEY on the server');
+    }
+  });
+
+  btnCloseTranslate.addEventListener('click', () => {
+    translatePanel.hidden = true;
+    btnToggleTranslate.classList.remove('active');
+  });
+
+  // Language selection
+  selectSourceLang.addEventListener('change', () => {
+    translator.setSourceLanguage(selectSourceLang.value);
+  });
+
+  selectTargetLang.addEventListener('change', () => {
+    translator.setTargetLanguage(selectTargetLang.value);
+  });
+
+  // Push-to-talk: hold to record, release to translate
+  function startTranslateRecording(e) {
+    e.preventDefault();
+    if (!translator.configured) {
+      showToast('Translation service not available');
+      return;
+    }
+    translator.startRecording(rtc.localStream);
+  }
+
+  function stopTranslateRecording(e) {
+    e.preventDefault();
+    translator.stopRecording();
+  }
+
+  // Mouse events
+  btnPushToTalk.addEventListener('mousedown', startTranslateRecording);
+  btnPushToTalk.addEventListener('mouseup', stopTranslateRecording);
+  btnPushToTalk.addEventListener('mouseleave', () => {
+    if (translator.recording) translator.stopRecording();
+  });
+
+  // Touch events (mobile)
+  btnPushToTalk.addEventListener('touchstart', startTranslateRecording);
+  btnPushToTalk.addEventListener('touchend', stopTranslateRecording);
+  btnPushToTalk.addEventListener('touchcancel', () => {
+    if (translator.recording) translator.stopRecording();
   });
 
   function showToast(text) {
