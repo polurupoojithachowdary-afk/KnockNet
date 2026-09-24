@@ -2,6 +2,7 @@ import { authenticatedFetch } from './api.js';
 import { auth, authReady, displayNameFor, signInWithGoogle } from './auth.js';
 import { WebRTCManager } from './webrtc.js';
 import { TranslateManager } from './translate.js';
+import { SignLanguageManager } from './sign-language.js';
 
 /**
  * Knocknet Conference Room Controller
@@ -12,23 +13,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   const authGateMessage = document.getElementById('auth-gate-message');
   const authGateButton = document.getElementById('btn-room-auth');
 
-  await authReady;
-  let user = auth?.currentUser;
-  if (!user) {
-    authGate.classList.add('active');
-    user = await new Promise((resolve) => {
-      authGateButton.addEventListener('click', async () => {
-        authGateButton.disabled = true;
-        authGateMessage.textContent = 'Verifying your identity…';
-        try {
-          resolve(await signInWithGoogle());
-        } catch (error) {
-          authGateMessage.textContent = error.message || 'Sign-in failed. Try again.';
-          authGateButton.disabled = false;
-        }
-      });
+  const btnRoomDemo = document.getElementById('btn-room-demo');
+  if (btnRoomDemo) {
+    btnRoomDemo.addEventListener('click', () => {
+      sessionStorage.setItem('knocknet_demo', 'true');
+      sessionStorage.setItem('knocknet_roomId', 'demo-room-888');
+      window.location.href = '/room.html?demo=true';
     });
+  }
+
+  const isDemo = new URLSearchParams(window.location.search).get('demo') === 'true' ||
+                 sessionStorage.getItem('knocknet_demo') === 'true';
+
+  let user = null;
+  if (isDemo) {
+    user = {
+      uid: 'demo-user-1',
+      displayName: 'Preetham',
+      email: 'preetham@knocknet.local',
+      getIdToken: async () => 'mock-jwt-token'
+    };
+    sessionStorage.setItem('knocknet_roomId', 'demo-room-888');
     authGate.classList.remove('active');
+  } else {
+    await authReady;
+    user = auth?.currentUser;
+    if (!user) {
+      authGate.classList.add('active');
+      user = await new Promise((resolve) => {
+        authGateButton.addEventListener('click', async () => {
+          authGateButton.disabled = true;
+          authGateMessage.textContent = 'Verifying your identity…';
+          try {
+            resolve(await signInWithGoogle());
+          } catch (error) {
+            authGateMessage.textContent = error.message || 'Sign-in failed. Try again.';
+            authGateButton.disabled = false;
+          }
+        });
+      });
+      authGate.classList.remove('active');
+    }
   }
 
   const inviteCode = new URLSearchParams(window.location.hash.slice(1)).get('invite');
@@ -147,24 +172,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isHost = false;
 
   // 1. Fetch Room Metadata from Spring Boot REST API
-  try {
-    const res = await authenticatedFetch(`/api/rooms/${roomId}`);
-    const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.message || 'Room access denied');
-    activeCode = data.code;
-    maxParticipants = data.maxParticipants || 6;
-    isHost = Boolean(data.isHost);
+  if (isDemo) {
+    activeCode = 'DEMO-88';
+    maxParticipants = 6;
+    isHost = true;
     headerCodeVal.textContent = activeCode;
     modalCodeDisplay.textContent = activeCode;
-    modalLinkInput.value = `${window.location.origin}/room.html#invite=${encodeURIComponent(activeCode)}`;
-    localRole.textContent = isHost ? 'Host' : 'Verified';
-    btnRefreshCode.hidden = !isHost;
-  } catch (e) {
-    authGate.classList.add('active');
-    authGateButton.hidden = true;
-    authGateMessage.textContent = e.message || 'Room access denied';
-    setTimeout(() => { window.location.href = '/'; }, 2200);
-    return;
+    modalLinkInput.value = `${window.location.origin}/room.html?demo=true`;
+    localRole.textContent = 'Host';
+    btnRefreshCode.hidden = false;
+  } else {
+    try {
+      const res = await authenticatedFetch(`/api/rooms/${roomId}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Room access denied');
+      activeCode = data.code;
+      maxParticipants = data.maxParticipants || 6;
+      isHost = Boolean(data.isHost);
+      headerCodeVal.textContent = activeCode;
+      modalCodeDisplay.textContent = activeCode;
+      modalLinkInput.value = `${window.location.origin}/room.html#invite=${encodeURIComponent(activeCode)}`;
+      localRole.textContent = isHost ? 'Host' : 'Verified';
+      btnRefreshCode.hidden = !isHost;
+    } catch (e) {
+      authGate.classList.add('active');
+      authGateButton.hidden = true;
+      authGateMessage.textContent = e.message || 'Room access denied';
+      setTimeout(() => { window.location.href = '/'; }, 2200);
+      return;
+    }
   }
 
   // 2. Call Timer
@@ -190,6 +226,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     onError: (err) => showToast(err),
     onSignalingStateChange: (state) => {
       if (state === 'disconnected') showToast('Signaling interrupted. Reconnecting securely…');
+    },
+    onSignalingCustomMessage: (msg) => {
+      handleIncomingCustomSignaling(msg);
     }
   });
 
@@ -397,6 +436,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 8. Leave Conference Call
   btnLeaveCall.addEventListener('click', () => {
     if (confirm('Leave this meeting?')) {
+      signManager?.destroy();
       translator.destroy();
       rtc.leave();
       window.location.href = '/';
@@ -404,6 +444,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   window.addEventListener('beforeunload', () => {
+    signManager?.destroy();
     translator.destroy();
     rtc.leave();
   });
@@ -541,6 +582,131 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnPushToTalk.addEventListener('touchcancel', () => {
     if (translator.recording) translator.stopRecording();
   });
+
+  // 10. Incoming Signaling Subtitles (Voice & Sign Language)
+  function handleIncomingCustomSignaling(msg) {
+    if (msg.type === 'sign-language-subtitle') {
+      const senderName = msg.sender || rtc.peerData.get(msg.from)?.displayName || 'Participant';
+      subtitleOriginal.textContent = `Sign Language (${senderName})`;
+      subtitleTranslated.textContent = msg.text || '';
+      subtitleOverlay.hidden = false;
+      clearTimeout(subtitleTimeout);
+      subtitleTimeout = setTimeout(() => {
+        subtitleOverlay.hidden = true;
+      }, 6000);
+
+      // Speak peer's translated sign if TTS is enabled
+      if (signManager && signManager.ttsEnabled && msg.text) {
+        signManager.speak(msg.text);
+      }
+    } else if (msg.type === 'translation-subtitle') {
+      const senderName = msg.sender || rtc.peerData.get(msg.from)?.displayName || 'Participant';
+      subtitleOriginal.textContent = `Voice Translation (${senderName})`;
+      subtitleTranslated.textContent = msg.translated || '';
+      subtitleOverlay.hidden = false;
+      clearTimeout(subtitleTimeout);
+      subtitleTimeout = setTimeout(() => {
+        subtitleOverlay.hidden = true;
+      }, 8000);
+    }
+  }
+
+  // 11. Sign Language Recognition & Translation Setup
+  const btnToggleSign = document.getElementById('btn-toggle-sign');
+  const signPanel = document.getElementById('sign-panel');
+  const btnCloseSign = document.getElementById('btn-close-sign');
+  const signCanvas = document.getElementById('sign-canvas');
+  const signStatusText = document.getElementById('sign-status-text');
+  const signLiveCard = document.getElementById('sign-live-card');
+  const signLiveBadge = document.getElementById('sign-live-badge');
+  const signLiveLabel = document.getElementById('sign-live-label');
+  const signLiveSpeech = document.getElementById('sign-live-speech');
+  const signSentenceText = document.getElementById('sign-sentence-text');
+  const btnClearSentence = document.getElementById('btn-clear-sentence');
+  const checkSignTts = document.getElementById('check-sign-tts');
+
+  const signManager = new SignLanguageManager({
+    videoElement: localVideo,
+    canvasElement: signCanvas,
+    onSignDetected: (signObj) => {
+      if (signLiveBadge) signLiveBadge.textContent = 'DETECTED';
+      if (signLiveLabel) signLiveLabel.textContent = signObj.label;
+      if (signLiveSpeech) signLiveSpeech.textContent = `"${signObj.spoken}"`;
+      if (signSentenceText) signSentenceText.textContent = signManager.getSentence() || '—';
+
+      if (signLiveCard) {
+        signLiveCard.classList.add('pulse');
+        setTimeout(() => signLiveCard.classList.remove('pulse'), 300);
+      }
+
+      // Display live subtitle for local user
+      subtitleOriginal.textContent = 'Sign Language (You)';
+      subtitleTranslated.textContent = signObj.spoken;
+      subtitleOverlay.hidden = false;
+      clearTimeout(subtitleTimeout);
+      subtitleTimeout = setTimeout(() => {
+        subtitleOverlay.hidden = true;
+      }, 5000);
+    },
+    onStatusChange: (status) => {
+      if (signStatusText) signStatusText.textContent = status.message;
+    },
+    onError: (err) => showToast(err),
+    sendToPeer: (data) => {
+      rtc.sendSignalingMessage({
+        type: 'sign-language-subtitle',
+        sender: displayName,
+        roomId: roomId,
+        ...data
+      });
+    }
+  });
+
+  // Pre-initialize AI model in background
+  signManager.init().catch(e => console.warn('Sign Language init warning:', e));
+
+  // Toggle button
+  btnToggleSign.addEventListener('click', async () => {
+    const willShow = signPanel.hidden;
+    signPanel.hidden = !willShow;
+    btnToggleSign.classList.toggle('active', willShow);
+
+    // Close voice translate panel if open to avoid visual overlap
+    if (willShow && !translatePanel.hidden) {
+      translatePanel.hidden = true;
+      btnToggleTranslate.classList.remove('active');
+    }
+
+    if (willShow) {
+      if (!signManager.recognizer) {
+        showToast('Initializing hand tracking AI…');
+        await signManager.init();
+      }
+      signManager.start(localVideo, signCanvas);
+      showToast('Sign language active. Show hand to camera!');
+    } else {
+      signManager.stop();
+    }
+  });
+
+  btnCloseSign.addEventListener('click', () => {
+    signPanel.hidden = true;
+    btnToggleSign.classList.remove('active');
+    signManager.stop();
+  });
+
+  if (checkSignTts) {
+    checkSignTts.addEventListener('change', () => {
+      signManager.ttsEnabled = checkSignTts.checked;
+    });
+  }
+
+  if (btnClearSentence) {
+    btnClearSentence.addEventListener('click', () => {
+      signManager.clearSentence();
+      if (signSentenceText) signSentenceText.textContent = 'Sentence cleared';
+    });
+  }
 
   function showToast(text) {
     roomToast.textContent = text;

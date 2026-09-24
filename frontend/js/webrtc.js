@@ -20,6 +20,7 @@ export class WebRTCManager {
     this.onTotalCountChange = options.onTotalCountChange || (() => {});
     this.onError = options.onError || console.error;
     this.onSignalingStateChange = options.onSignalingStateChange || (() => {});
+    this.onSignalingCustomMessage = options.onSignalingCustomMessage || (() => {});
 
     // State
     this.localStream = null;
@@ -265,6 +266,12 @@ export class WebRTCManager {
 
       case 'media-state': {
         this.onPeerStateChange(msg.from, msg);
+        break;
+      }
+
+      case 'translation-subtitle':
+      case 'sign-language-subtitle': {
+        this.onSignalingCustomMessage(msg);
         break;
       }
 

@@ -39,6 +39,7 @@
     <main class="video-stage grid-1" id="video-stage" aria-label="Meeting participants">
       <div class="video-tile local-tile" id="tile-local">
         <video id="local-video" autoplay playsinline muted></video>
+        <canvas id="sign-canvas" class="sign-canvas"></canvas>
 
         <div class="avatar-placeholder" id="local-avatar">
           <div class="avatar-circle" id="local-avatar-initials">YOU</div>
@@ -78,6 +79,10 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="15" rx="2"/><path d="M8 22h8M12 18v4M8 10l4-4 4 4M12 6v8"/></svg>
         </button>
         <span class="dock-divider" aria-hidden="true"></span>
+        <!-- Sign Language Translation toggle -->
+        <button type="button" class="btn-dock-action" id="btn-toggle-sign" aria-label="Sign Language translation" title="Sign Language to Voice">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v7"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+        </button>
         <!-- Voice Translation toggle -->
         <button type="button" class="btn-dock-action" id="btn-toggle-translate" aria-label="Voice translation" title="Voice translation">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
@@ -90,6 +95,69 @@
         </button>
       </div>
     </footer>
+
+    <!-- Sign Language translation panel -->
+    <div class="sign-panel" id="sign-panel" hidden>
+      <div class="sign-panel-header">
+        <div class="sign-header-title">
+          <svg class="sign-header-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v7"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+          <div>
+            <h3>Sign Language to Voice</h3>
+            <p class="sign-status-sub" id="sign-status-text">AI Ready</p>
+          </div>
+        </div>
+        <button type="button" class="btn-close-sign" id="btn-close-sign" aria-label="Close">×</button>
+      </div>
+      <div class="sign-panel-body">
+        <!-- Live detected sign banner -->
+        <div class="sign-live-card" id="sign-live-card">
+          <div class="sign-live-badge" id="sign-live-badge">SIGN</div>
+          <div class="sign-live-details">
+            <span class="sign-live-label" id="sign-live-label">Waiting for hand sign…</span>
+            <span class="sign-live-speech" id="sign-live-speech">Show hand to camera</span>
+          </div>
+        </div>
+
+        <!-- Sentence accumulation buffer -->
+        <div class="sign-sentence-box">
+          <div class="sign-sentence-header">
+            <span>Live Sentence</span>
+            <button type="button" class="btn-clear-sentence" id="btn-clear-sentence" title="Clear text">Clear</button>
+          </div>
+          <div class="sign-sentence-text" id="sign-sentence-text">Your translated speech will appear here…</div>
+        </div>
+
+        <!-- Voice output toggle -->
+        <div class="sign-controls-row">
+          <label class="sign-switch-label">
+            <input type="checkbox" id="check-sign-tts" checked>
+            <span>Speak signs aloud (Voice)</span>
+          </label>
+        </div>
+
+        <!-- Collapsible gesture reference guide (optional, hidden by default) -->
+        <details class="sign-guide-details" id="sign-guide-details">
+          <summary class="sign-guide-summary">
+            <span>Gesture Reference Guide</span>
+            <span class="guide-toggle-hint">View</span>
+          </summary>
+          <div class="sign-tags-grid">
+            <span class="sign-tag">Hello</span>
+            <span class="sign-tag">Yes</span>
+            <span class="sign-tag">No</span>
+            <span class="sign-tag">OK</span>
+            <span class="sign-tag">Peace</span>
+            <span class="sign-tag">I Love You</span>
+            <span class="sign-tag">Call Me</span>
+            <span class="sign-tag">Letter L</span>
+            <span class="sign-tag">Letter I</span>
+            <span class="sign-tag">Letter W</span>
+            <span class="sign-tag">Letter B</span>
+            <span class="sign-tag">Letter C</span>
+          </div>
+        </details>
+      </div>
+    </div>
 
     <!-- Translation settings panel -->
     <div class="translate-panel" id="translate-panel" hidden>
@@ -160,6 +228,7 @@
       <h1 id="auth-gate-title">Sign in to continue</h1>
       <p id="auth-gate-message">Every participant verifies their identity before entering a private meeting.</p>
       <button type="button" id="btn-room-auth">Continue with Google</button>
+      <button type="button" id="btn-room-demo" class="btn-demo-auth">Preview & Test Sign Language (Demo Mode)</button>
     </div>
   </div>
 

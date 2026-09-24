@@ -74,7 +74,7 @@ public class SignalingHandler extends TextWebSocketHandler {
             case "offer" -> handleRelay(session, json, "offer");
             case "answer" -> handleRelay(session, json, "answer");
             case "ice-candidate" -> handleRelay(session, json, "ice-candidate");
-            case "media-state" -> handleBroadcastRoom(session, json);
+            case "media-state", "translation-subtitle", "sign-language-subtitle" -> handleBroadcastRoom(session, json);
             case "ping" -> sendJson(session, Map.of("type", "pong"));
             case "leave" -> handleLeave(session);
             default -> log.debug("Unknown signaling message type: {}", type);
